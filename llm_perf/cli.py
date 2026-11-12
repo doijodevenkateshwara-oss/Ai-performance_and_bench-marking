@@ -22,6 +22,10 @@ def _load_or_exit(path: str, skip_connectivity: bool = False) -> PerfConfig:
     except Exception as e:
         console.print(f"[red]Config error:[/red] {e}")
         raise typer.Exit(2)
+    from .security import set_policy, warn_untrusted
+
+    set_policy(cfg.security)
+    warn_untrusted(cfg)
     if not skip_connectivity:
         _check_env_vars(cfg)
     return cfg

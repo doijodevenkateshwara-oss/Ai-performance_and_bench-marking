@@ -303,8 +303,10 @@ def record_error(
             with suppress(Exception):
                 stats.get(scenario, "TIMEOUTS").log(1, 0)
     if stats is not None:
+        from .security import redact_secrets
+
         with suppress(Exception):
-            stats.log_error("LLM_ERROR", scenario, error[:500])
+            stats.log_error("LLM_ERROR", scenario, redact_secrets(error)[:500])
 
 
 def record_quality(
@@ -396,6 +398,8 @@ def log_request_event(
     if _CURRENT_ENV is None:
         return
     with suppress(Exception):
+        from .security import redact_secrets
+
         _CURRENT_ENV.events.request.fire(
             request_type=method,
             name=name,
@@ -403,7 +407,7 @@ def log_request_event(
             response_length=response_length,
             response=None,
             context={},
-            exception=exception,
+            exception=redact_secrets(exception) if exception else exception,
         )
 
 

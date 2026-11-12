@@ -105,7 +105,10 @@ def _retrieve(vtype: str, cfg: dict, query: str, top_k: int) -> list[dict]:
 def _retrieve_http(cfg: dict, query: str, top_k: int) -> list[dict]:
     import requests
 
+    from ..security import check_url
+
     url = cfg["url"]
+    check_url(url)
     body = {"query": query, "top_k": top_k, **cfg.get("params", {})}
     headers = dict(cfg.get("headers", {}))
     key_env = cfg.get("api_key_env")
@@ -278,6 +281,9 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
         if kind == "http":
             import requests
 
+            from ..security import check_url
+
+            check_url(cfg["url"])
             q = args.get("input") or args.get("query") or _json.dumps(args)
             body = dict(cfg.get("body_template") or {})
             body.setdefault("query", q)
@@ -295,6 +301,13 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
             )
             return resp.text[:8000], time.monotonic() - start
         if kind == "function":
+            from ..security import python_execution_allowed
+
+            if not python_execution_allowed(f"agent tool {name!r} import {cfg.get('import_path')}"):
+                return (
+                    "error: python execution disabled by security.python_execution=off",
+                    time.monotonic() - start,
+                )
             import importlib
 
             mod_path, _, attr = cfg["import_path"].partition(":")

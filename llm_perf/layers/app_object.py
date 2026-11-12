@@ -14,6 +14,12 @@ from .base import LayerResult
 
 def _import_factory(python_path: str):
     """Import 'module.path:callable' and return the callable."""
+    from ..security import python_execution_allowed
+
+    if not python_execution_allowed(f"app_object import {python_path}"):
+        raise PermissionError(
+            "python execution disabled by security.python_execution=off " f"(python_path={python_path!r})"
+        )
     mod_path, _, attr = python_path.partition(":")
     mod = importlib.import_module(mod_path)
     obj = mod

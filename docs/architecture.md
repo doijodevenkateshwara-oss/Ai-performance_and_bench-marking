@@ -53,6 +53,7 @@ reporting/analysis pipeline.
 
 - `observability.otel` — enable/disable, endpoint, service name, sample ratio
 - `datasets` — named dataset sources (local path, HTTP, S3, GCS)
+- `security` — egress/execution guardrails: URL allowlist, private-network blocking, Python-execution gate, dataset limits, secret redaction
 - `targets` — the thing under test; each has a `layer`:
   - `llm_api` — direct vendor API (OpenAI, Anthropic, Azure, Bedrock, generic HTTP, gRPC)
   - `pipeline` — declarative multi-stage RAG/agent pipeline

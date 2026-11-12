@@ -35,6 +35,37 @@ class ObservabilityConfig(BaseModel):
     prometheus: PrometheusConfig = Field(default_factory=PrometheusConfig)
 
 
+class SecurityConfig(BaseModel):
+    """Egress/execution guardrails for untrusted or shared configs.
+
+    Defaults preserve historical behavior (internal services reachable,
+    python tools allowed with a warning). Tighten for CI running configs
+    from untrusted sources.
+    """
+
+    # when False, http(s) calls resolving to loopback/RFC1918/link-local/
+    # multicast/reserved addresses are blocked (SSRF guard). Applies to
+    # provider endpoints, app endpoints, agent http tools, vector-store
+    # http retrieves, dataset fetches, and report scrapes.
+    allow_private_networks: bool = True
+    # optional host allowlist; entries match exact hosts or domain suffixes
+    # ("api.example.com" also matches "x.api.example.com"; "*.example.com"
+    # works too). Empty = no restriction. Applies to the same call sites.
+    url_allowlist: list[str] = Field(default_factory=list)
+    # gate for user-supplied Python: app_object python_path imports and
+    # agent tools of type=function. "warn" allows + warns once per process,
+    # "allow" is silent, "off" blocks.
+    python_execution: Literal["allow", "warn", "off"] = "warn"
+    # dataset fetch guards (all sources, incl. local files)
+    dataset_max_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
+    dataset_max_rows: int = Field(default=1_000_000, gt=0)
+    dataset_timeout_s: float = Field(default=30.0, gt=0)
+    # scrub credential-shaped strings from error stats / trace attributes
+    redact: bool = True
+    # set true to acknowledge the config is trusted and silence warnings
+    trusted: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Datasets
 # ---------------------------------------------------------------------------
@@ -392,6 +423,7 @@ class ReportConfig(BaseModel):
 
 class PerfConfig(BaseModel):
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
     datasets: dict[str, DatasetConfig] = Field(default_factory=dict)
     targets: list[Target] = Field(default_factory=list)
     scenarios: list[ScenarioConfig] = Field(default_factory=list)

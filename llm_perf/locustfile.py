@@ -14,12 +14,15 @@ from .config import PerfConfig
 from .otel.setup import setup_otel
 from .otel.setup import shutdown as otel_shutdown
 from .scenarios import build_users
+from .security import set_policy, warn_untrusted
 
 _config_path = os.environ.get("LLM_PERF_CONFIG")
 if not _config_path:
     raise RuntimeError("LLM_PERF_CONFIG env var must point to a config YAML")
 
 _config = PerfConfig.from_yaml(_config_path)
+set_policy(_config.security)
+warn_untrusted(_config)
 _users = build_users(_config)
 
 # expose generated user classes at module level for locust discovery

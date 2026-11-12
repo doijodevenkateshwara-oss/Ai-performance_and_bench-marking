@@ -173,6 +173,52 @@ profile — use them to see the full report shape (executive summary,
 bottleneck analysis, SLO rollup, resource utilization, cost) without API
 keys.
 
+## Security
+
+Configs can point the framework at arbitrary endpoints, import Python
+modules, and fetch remote datasets — treat YAML configs as trusted code.
+A prominent warning is printed at startup when a config uses powerful
+features (Python imports, `request_template`, agent HTTP/function tools,
+remote dataset URLs) unless you set `security.trusted: true`.
+
+Guardrails live under `security:` in the config:
+
+```yaml
+security:
+  allow_private_networks: true    # false = block loopback/RFC1918/link-local/reserved IPs (SSRF guard)
+  url_allowlist: []               # e.g. ["api.openai.com", "*.corp.example.com"]; empty = no restriction
+  python_execution: warn          # allow | warn | off — gates python_path imports & function tools
+  dataset_max_bytes: 52428800     # 50 MiB cap per dataset source
+  dataset_max_rows: 1000000
+  dataset_timeout_s: 30
+  redact: true                    # scrub credentials from error stats and span attributes
+  trusted: false                  # true = silence untrusted-config warnings
+```
+
+Enforcement points:
+
+- **All outbound HTTP** — provider endpoints, `app_endpoint` targets,
+  agent `http` tools, pipeline `vector_store` http retrieves, dataset
+  `http(s)` fetches, and `report.scrape` targets all pass through
+  `check_url()`: scheme must be http/https, host must match
+  `url_allowlist` (when set), and resolved IPs must be globally routable
+  when `allow_private_networks: false`.
+- **Python execution** — `app_object` `python_path` imports and agent
+  `type: function` tools are gated by `python_execution`: `warn` (default)
+  allows with a one-time warning, `allow` is silent, `off` blocks.
+- **Datasets** — every source (local file, http(s), s3, gs) is capped by
+  `dataset_max_bytes`/`dataset_max_rows`; remote fetches use
+  `dataset_timeout_s` and the same URL policy.
+- **Redaction** — `record_error`/`log_request_event`/span error attributes
+  scrub `Bearer` tokens, `api_key=`/`token=`/`password=`-style params, URL
+  userinfo, and common key shapes (`sk-`, `ghp_`, `AKIA`, private-key
+  blocks) when `redact: true`.
+
+Defaults preserve prior behavior: private networks reachable (the
+framework exists to test internal services), Python tools allowed with a
+warning, 50 MiB/1M-row dataset caps. Tighten for CI running configs from
+untrusted sources. gRPC targets are not covered by the URL checks.
+
 ## CI usage
 
 The repo's own CI (`.github/workflows/ci.yml`) runs:

@@ -15,7 +15,9 @@ layers you care about and run them independently or together:
 
 Plus: dataset-driven prompts, hybrid quality scoring (heuristics + LLM-as-judge
 + RAG recall), SLO thresholds with pass/fail gating and webhook alerts, OTel
-traces/metrics, end-of-run CSV/JSON/HTML reports, and a Grafana dashboard.
+traces/metrics, end-of-run CSV/JSON/HTML reports, a Grafana dashboard, and
+security guardrails (URL allowlisting, private-network blocking, Python-execution
+gating, dataset limits, secret redaction) for untrusted configs.
 
 ## What it answers
 
@@ -376,6 +378,33 @@ Metrics you can gate on: `p50/p90/p95/p99_ms`, `ttft_p95_ms`,
 latency rules. Threshold state is exported live as `llm_perf_threshold_pass`
 gauges for Grafana/Alertmanager mid-run alerting; `on_fail: fail` makes the
 CLI exit non-zero.
+
+## Security
+
+Configs can point the framework at arbitrary endpoints, import Python
+modules, and fetch remote datasets — treat YAML configs as trusted code.
+A startup warning is printed when a config uses powerful features
+(`python_path`, agent `http`/`function` tools, remote dataset URLs) unless
+`security.trusted: true`.
+
+```yaml
+security:
+  allow_private_networks: false   # block loopback/RFC1918/link-local IPs
+  url_allowlist: []               # e.g. ["api.openai.com", "*.corp.example.com"]
+  python_execution: warn          # allow | warn | off
+  dataset_max_bytes: 52428800
+  dataset_max_rows: 1000000
+  dataset_timeout_s: 30
+  redact: true                    # scrub credentials from errors and traces
+  trusted: false
+```
+
+All outbound HTTP (providers, app endpoints, agent tools, vector stores,
+datasets, report scrapes) passes through URL checks; Python imports and
+function tools are gated by `python_execution`; datasets are size/row/timeout
+capped. Defaults preserve prior behavior. Full details:
+[docs/how-to-run.md](docs/how-to-run.md#security). gRPC targets are not
+covered by the URL checks.
 
 ## Observability
 

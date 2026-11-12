@@ -21,6 +21,9 @@ class HttpTransport:
         data: bytes | None = None,
         stream: bool = False,
     ) -> requests.Response:
+        from ..security import check_url
+
+        check_url(url)
         return self.session.request(
             method, url, headers=headers or {}, json=json_body, data=data, stream=stream, timeout=self.timeout
         )

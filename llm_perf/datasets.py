@@ -78,42 +78,68 @@ def _detect_format(source: str) -> str:
 
 
 def _read_rows(source: str, fmt: str) -> list[dict]:
+    from .security import get_policy
+
+    max_rows = get_policy().dataset_max_rows
     text = _read_text(source)
     if fmt == "yaml":
         data = yaml.safe_load(text) or []
         if isinstance(data, dict):
             for key in ("rows", "data", "items", "prompts"):
                 if key in data and isinstance(data[key], list):
-                    return data[key]
-            return [data]
-        return list(data)
-    if fmt == "csv":
-        return [dict(r) for r in csv.DictReader(io.StringIO(text))]
-    # jsonl
-    rows = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if line:
-            rows.append(json.loads(line))
+                    rows = data[key]
+                    break
+            else:
+                rows = [data]
+        else:
+            rows = list(data)
+    elif fmt == "csv":
+        rows = [dict(r) for r in csv.DictReader(io.StringIO(text))]
+    else:
+        # jsonl — bail early instead of materializing an unbounded list
+        rows = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if line:
+                rows.append(json.loads(line))
+                if len(rows) > max_rows:
+                    raise ValueError(f"dataset {source!r} exceeds security.dataset_max_rows={max_rows}")
+    if len(rows) > max_rows:
+        raise ValueError(f"dataset {source!r} exceeds security.dataset_max_rows={max_rows}")
     return rows
 
 
 def _read_text(source: str) -> str:
+    from .security import check_url, get_policy
+
+    pol = get_policy()
+    max_bytes = pol.dataset_max_bytes
+
+    def _cap(data: bytes, origin: str) -> str:
+        if len(data) > max_bytes:
+            raise ValueError(f"dataset {origin!r} exceeds security.dataset_max_bytes={max_bytes}")
+        return data.decode("utf-8")
+
     if source.startswith(("http://", "https://")):
-        with urllib.request.urlopen(source, timeout=30) as r:
-            return r.read().decode("utf-8")
+        check_url(source)
+        req = urllib.request.Request(source, headers={"User-Agent": "llm-perf"})
+        with urllib.request.urlopen(req, timeout=pol.dataset_timeout_s) as r:
+            return _cap(r.read(max_bytes + 1), source)
     if source.startswith("s3://"):
         import boto3
 
         bucket, key = source[5:].split("/", 1)
         s3 = boto3.client("s3")
-        return s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
+        return _cap(s3.get_object(Bucket=bucket, Key=key)["Body"].read(max_bytes + 1), source)
     if source.startswith("gs://"):
         import gcsfs
 
         with gcsfs.GCSFileSystem().open(source[5:], "rb") as f:
-            return f.read().decode("utf-8")
-    return Path(source).read_text(encoding="utf-8")
+            return _cap(f.read(max_bytes + 1), source)
+    p = Path(source)
+    if p.stat().st_size > max_bytes:
+        raise ValueError(f"dataset {source!r} exceeds security.dataset_max_bytes={max_bytes}")
+    return p.read_text(encoding="utf-8")
 
 
 def _map_columns(row: dict, columns: dict[str, str]) -> dict:

@@ -16,6 +16,9 @@ class LayerFactory:
     """Caches layers + datasets + prompt pickers per worker process."""
 
     def __init__(self, config):
+        from ..security import set_policy
+
+        set_policy(getattr(config, "security", None))
         self.config = config
         self._layers: dict[str, Layer] = {}
         self._datasets: dict[str, Dataset] = {}

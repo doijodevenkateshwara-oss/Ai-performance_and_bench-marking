@@ -199,8 +199,11 @@ def evaluate_resource_warnings(loadgen: dict, cfg) -> list[dict]:
 
 def scrape_prometheus(url: str, metrics: list[str], timeout_s: float = 5.0) -> dict:
     """Fetch a Prometheus text exposition and sum/avg the named metrics."""
+    from .security import check_url
+
     out: dict[str, dict] = {}
     try:
+        check_url(url)
         with urlopen(url, timeout=timeout_s) as r:
             text = r.read().decode("utf-8", "replace")
     except Exception as e:

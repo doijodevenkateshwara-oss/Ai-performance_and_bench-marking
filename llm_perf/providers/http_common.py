@@ -196,6 +196,9 @@ class HttpClient:
         stream: bool = False,
         timeout: float | None = None,
     ) -> requests.Response:
+        from ..security import check_url
+
+        check_url(url)
         return self.session.post(
             url,
             headers=headers,

@@ -70,7 +70,9 @@ class LlmApiLayer:
                 )
                 log_request_event(scenario_name, e2e * 1000, exception=str(err))
                 span.set_attribute("error", True)
-                span.set_attribute("llm_perf.error", str(err)[:500])
+                from ..security import redact_secrets
+
+                span.set_attribute("llm_perf.error", redact_secrets(str(err))[:500])
                 return LayerResult(error=str(err), response=resp, stage_metrics={"e2e_s": e2e}, row=row)
             record_response(scenario_name, resp, e2e, t.provider, model=model)
             from ..metrics import log_request_event
