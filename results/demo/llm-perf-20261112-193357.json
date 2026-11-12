@@ -1,0 +1,289 @@
+{
+  "generated_at": "2026-11-12T19:33:57+0530",
+  "duration_s": 70.17896032333374,
+  "totals": {
+    "requests": 119,
+    "failures": 0,
+    "error_rate": 0.0,
+    "peak_users": 3
+  },
+  "scenarios": [
+    {
+      "scenario": "stream_smoke",
+      "methods": {
+        "TOKENS": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 24.0,
+          "min_ms": 24,
+          "max_ms": 24,
+          "p50": 24,
+          "p90": 24,
+          "p95": 24,
+          "p99": 24
+        },
+        "PROMPT_TOKENS": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 12.0,
+          "min_ms": 12,
+          "max_ms": 12,
+          "p50": 12,
+          "p90": 12,
+          "p95": 12,
+          "p99": 12
+        },
+        "COMPLETION_TOKENS": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 12.0,
+          "min_ms": 12,
+          "max_ms": 12,
+          "p50": 12,
+          "p90": 12,
+          "p95": 12,
+          "p99": 12
+        },
+        "TTFT": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 90.47452111761751,
+          "min_ms": 90.0268409986893,
+          "max_ms": 92.91601899894886,
+          "p50": 93,
+          "p90": 93,
+          "p95": 93,
+          "p99": 93
+        },
+        "TOKENS_PER_SEC": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 44.0871346812401,
+          "min_ms": 43.677966661461554,
+          "max_ms": 44.37915842885092,
+          "p50": 44,
+          "p90": 44,
+          "p95": 44,
+          "p99": 44
+        },
+        "INPUT_TOKENS_PER_SEC": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 32.80767096548834,
+          "min_ms": 31.762271509766197,
+          "max_ms": 32.91616916626247,
+          "p50": 33,
+          "p90": 33,
+          "p95": 33,
+          "p99": 33
+        },
+        "TPOT": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 24.744489398032265,
+          "min_ms": 24.581563272725113,
+          "max_ms": 24.9761876363085,
+          "p50": 25,
+          "p90": 25,
+          "p95": 25,
+          "p99": 25
+        },
+        "GEN_DURATION": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 272.1893833783549,
+          "min_ms": 270.39719599997625,
+          "max_ms": 274.7380639993935,
+          "p50": 270,
+          "p90": 270,
+          "p95": 270,
+          "p99": 270
+        },
+        "ITL_AVG": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 24.744489398032265,
+          "min_ms": 24.581563272725113,
+          "max_ms": 24.9761876363085,
+          "p50": 25,
+          "p90": 25,
+          "p95": 25,
+          "p99": 25
+        },
+        "ITL_P95": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 91.02379793272243,
+          "min_ms": 90.60344899990014,
+          "max_ms": 109.0368290006154,
+          "p50": 110,
+          "p90": 110,
+          "p95": 110,
+          "p99": 110
+        },
+        "QUEUE_WAIT": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 0.24319356313807314,
+          "min_ms": 0.18470299983164296,
+          "max_ms": 0.6643800006713718,
+          "p50": 1,
+          "p90": 1,
+          "p95": 1,
+          "p99": 1
+        },
+        "POST": {
+          "requests": 119,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 365.7745956051327,
+          "min_ms": 364.5624719993066,
+          "max_ms": 377.8067319999536,
+          "p50": 380,
+          "p90": 380,
+          "p95": 380,
+          "p99": 380
+        }
+      },
+      "requests": 119,
+      "failures": 0,
+      "error_rate": 0.0,
+      "avg_ms": 365.7745956051327,
+      "p50_ms": 380,
+      "p90_ms": 380,
+      "p95_ms": 380,
+      "p99_ms": 380,
+      "rps": 1.6956649037223452,
+      "cost_usd": null,
+      "ttft_p95_ms": 90.76894799909496,
+      "ttft_avg_ms": 90.47452111761751,
+      "total_tokens": 119,
+      "tokens_per_sec_avg": 44.08713468124008,
+      "input_tokens_per_sec_avg": 32.807670965488356,
+      "tpot_avg_ms": 24.74448939803226,
+      "tpot_p95_ms": 24.847056272847112,
+      "gen_duration_avg_ms": 272.1893833783549,
+      "gen_duration_p95_ms": 273.31761900131823,
+      "itl_avg_avg_ms": 24.74448939803226,
+      "itl_avg_p95_ms": 24.847056272847112,
+      "itl_p95_avg_ms": 91.02379793272243,
+      "itl_p95_p95_ms": 92.78496699880634,
+      "queue_wait_avg_ms": 0.24319356313807314,
+      "queue_wait_p95_ms": 0.29571400045824703,
+      "retries_total": 0.0,
+      "retries_avg": null,
+      "timeouts": 0,
+      "cost_per_success_usd": null
+    }
+  ],
+  "thresholds": {
+    "all_passed": null,
+    "failed": [],
+    "rules": []
+  },
+  "load": {
+    "profile": "smoke",
+    "users": 3,
+    "spawn_rate": 3.0,
+    "duration": "60s",
+    "run_time": null
+  },
+  "phases": [
+    {
+      "label": "ramp_up",
+      "target_users": 3,
+      "spawn_rate": 3.0,
+      "duration_s": 5.0
+    },
+    {
+      "label": "steady",
+      "target_users": 3,
+      "spawn_rate": 3.0,
+      "duration_s": 60.0
+    },
+    {
+      "label": "ramp_down",
+      "target_users": 0,
+      "spawn_rate": 3.0,
+      "duration_s": 5.0
+    }
+  ],
+  "stages": [],
+  "resources": {
+    "loadgen": {
+      "samples": 14,
+      "interval_s": 5.0,
+      "cpu_percent_avg": 24.5,
+      "cpu_percent_max": 37.6,
+      "mem_percent_avg": 31.6,
+      "mem_percent_max": 31.9,
+      "mem_used_mb_max": 5252.2,
+      "scheduler_lag": {
+        "samples": 200,
+        "interval_ms": 50.0,
+        "avg_ms": 0.63,
+        "p50_ms": 0.18,
+        "p95_ms": 0.92,
+        "max_ms": 71.06
+      }
+    }
+  },
+  "analysis": {
+    "executive_summary": {
+      "verdict": "PASS",
+      "requests": 119,
+      "failures": 0,
+      "error_rate": 0.0,
+      "duration_s": 70.17896032333374,
+      "scenarios": 1,
+      "headline_scenario": "stream_smoke",
+      "headline": {
+        "p95_ms": 380,
+        "ttft_p95_ms": 90.76894799909496,
+        "tokens_per_sec_avg": 44.08713468124008,
+        "quality_score_avg": null
+      },
+      "cost_usd": null,
+      "slo": {
+        "pass": 0,
+        "fail": 0,
+        "skip": 0,
+        "all_passed": true
+      },
+      "findings": [
+        "Primary scenario 'stream_smoke' served 119 requests at p95=380ms.",
+        "Output throughput ~44.1 tok/s (avg)."
+      ]
+    },
+    "slo": {
+      "pass": 0,
+      "fail": 0,
+      "skip": 0,
+      "all_passed": true
+    },
+    "bottlenecks": [
+      {
+        "type": "decode_bound",
+        "severity": "medium",
+        "scenario": "stream_smoke",
+        "detail": "generation p95 (273ms) dominates e2e \u2014 decode-bound"
+      }
+    ]
+  },
+  "comparison": null,
+  "regression": {
+    "checked": false,
+    "regressions": []
+  }
+}
