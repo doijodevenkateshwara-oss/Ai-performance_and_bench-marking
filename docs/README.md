@@ -15,9 +15,11 @@ Dashboard screenshots live in [screenshots/](screenshots/):
 
 | File | Dashboard |
 |---|---|
-| `screenshots/grafana-llm-perf.png` | Grafana — LLM Performance & Quality dashboard |
-| `screenshots/prometheus.png` | Prometheus — p95 request-duration graph |
-| `screenshots/jaeger-traces.png` | Jaeger — trace search for `llm-perf-demo` |
+| `screenshots/grafana-llm-perf.png` | Grafana — full LLM Performance & Quality dashboard (all 10 panels) |
+| `screenshots/prometheus-graph.png` | Prometheus — p95 request-duration graph |
+| `screenshots/prometheus-targets.png` | Prometheus — scrape targets/status |
+| `screenshots/jaeger-search.png` | Jaeger — trace search results for `llm-perf-demo` |
+| `screenshots/jaeger-trace.png` | Jaeger — individual trace detail (span waterfall) |
 | `screenshots/locust-ui.png` | Locust live UI during a run |
 
 Regenerate the Docker-stack shots with
