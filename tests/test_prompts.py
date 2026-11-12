@@ -20,8 +20,7 @@ def test_load_prompts_txt(tmp_path):
 
 
 def test_picker_vars_render():
-    picker = PromptPicker(prompts=["Tell me about {topic}."],
-                          vars_={"topic": ["k8s", "ai"]})
+    picker = PromptPicker(prompts=["Tell me about {topic}."], vars_={"topic": ["k8s", "ai"]})
     rng = random.Random(1)
     out = picker.pick(rng)
     assert "{topic}" not in out

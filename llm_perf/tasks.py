@@ -1,8 +1,8 @@
 """Locust task: execute one request through a layer + quality evaluation."""
+
 from __future__ import annotations
 
 import random
-from typing import Optional
 
 from .config import PerfConfig, ScenarioConfig
 from .layers import LayerFactory
@@ -11,15 +11,16 @@ from .quality.scorer import QualityResult
 
 
 class RequestContext:
-    """Holds per-scenario runtime state (factory, judge samplers)."""
+    """Holds per-scenario runtime state (factory, judge samplers, cost)."""
 
     def __init__(self, config: PerfConfig):
         self.config = config
         self.factory = LayerFactory(config)
         self._judge_samplers: dict[str, JudgeSampler] = {}
-        self._layers: dict[str, object] = {}
+        self.cost_by_scenario: dict[str, float] = {}
+        self.pricing = getattr(config.report, "pricing", None)
 
-    def judge_sampler(self, scenario: ScenarioConfig) -> Optional[JudgeSampler]:
+    def judge_sampler(self, scenario: ScenarioConfig) -> JudgeSampler | None:
         if not scenario.quality or not scenario.quality.judge:
             return None
         key = scenario.name
@@ -50,6 +51,16 @@ class RequestContext:
                 judge_sampler=self.judge_sampler(scenario),
             )
             from .metrics import record_quality
-            record_quality(scenario.name, qres.score, qres.passed,
-                           context_recall=qres.context_recall)
+
+            record_quality(scenario.name, qres.score, qres.passed, context_recall=qres.context_recall)
+
+        # cost accounting (skip quality-only/judge calls — they aren't in result)
+        resp = result.response
+        if resp is not None and (resp.prompt_tokens or resp.completion_tokens):
+            from .metrics import estimate_cost, record_cost
+
+            cost = estimate_cost(resp.prompt_tokens, resp.completion_tokens, self.pricing)
+            if cost:
+                record_cost(scenario.name, cost)
+                self.cost_by_scenario[scenario.name] = self.cost_by_scenario.get(scenario.name, 0.0) + cost
         return qres

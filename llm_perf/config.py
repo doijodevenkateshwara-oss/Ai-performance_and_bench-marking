@@ -1,21 +1,22 @@
 """Pydantic configuration models for llm-perf YAML configs."""
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
-
 
 # ---------------------------------------------------------------------------
 # Observability
 # ---------------------------------------------------------------------------
 
+
 class OtelConfig(BaseModel):
     enabled: bool = True
-    endpoint: Optional[str] = None  # OTLP gRPC endpoint; falls back to env/default
+    endpoint: str | None = None  # OTLP gRPC endpoint; falls back to env/default
     service_name: str = "llm-perf"
     sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
     genai_semconv: bool = True
@@ -23,6 +24,7 @@ class OtelConfig(BaseModel):
 
 class PrometheusConfig(BaseModel):
     """Deprecated alias kept for backwards compat; OTel is the metrics path."""
+
     enabled: bool = False
     port: int = 9090
     interval_s: int = 15
@@ -37,18 +39,19 @@ class ObservabilityConfig(BaseModel):
 # Datasets
 # ---------------------------------------------------------------------------
 
+
 class DatasetSample(BaseModel):
     strategy: Literal["first", "random", "weighted"] = "first"
-    count: Optional[int] = None
+    count: int | None = None
     seed: int = 42
-    weights: Optional[dict[str, float]] = None  # tag/column value -> weight
+    weights: dict[str, float] | None = None  # tag/column value -> weight
 
 
 class DatasetConfig(BaseModel):
     source: str  # path, URL, s3://, gs://
-    format: Optional[Literal["yaml", "csv", "jsonl"]] = None  # auto-detect
+    format: Literal["yaml", "csv", "jsonl"] | None = None  # auto-detect
     columns: dict[str, str] = Field(default_factory=dict)  # logical -> source field
-    sample: Optional[DatasetSample] = None
+    sample: DatasetSample | None = None
     vars: dict[str, list[Any]] = Field(default_factory=dict)
 
     @field_validator("source")
@@ -63,19 +66,20 @@ class DatasetConfig(BaseModel):
 # Targets / layers
 # ---------------------------------------------------------------------------
 
+
 class AzureConfig(BaseModel):
     api_version: str = "2024-10-21"
     deployment_field: str = "model"
 
 
 class AwsConfig(BaseModel):
-    region: Optional[str] = None
+    region: str | None = None
     auth: Literal["env", "profile", "iam_role"] = "env"
-    profile: Optional[str] = None
+    profile: str | None = None
 
 
 class GrpcConfig(BaseModel):
-    proto_path: Optional[str] = None  # None -> bundled triton proto
+    proto_path: str | None = None  # None -> bundled triton proto
     service: str = "inference.GRPCInferenceService"
     method: str = "ModelInfer"
     tls: bool = True
@@ -86,6 +90,7 @@ class GrpcConfig(BaseModel):
 
 class ProviderParams(BaseModel):
     """Provider-specific extra config, kept flexible."""
+
     model_config = {"extra": "allow"}
 
 
@@ -93,7 +98,7 @@ class BaseTarget(BaseModel):
     name: str
     layer: Literal["llm_api", "pipeline", "app_endpoint", "app_object"] = "llm_api"
     weight: float = 1.0  # used when referenced from scenarios; also default scenario weight
-    think_time: Optional[tuple[float, float]] = None
+    think_time: tuple[float, float] | None = None
     timeout_s: float = 120.0
     tags: dict[str, str] = Field(default_factory=dict)
     vars: dict[str, list[Any]] = Field(default_factory=dict)  # {var} template pools
@@ -110,19 +115,19 @@ class LlmApiTarget(BaseTarget):
     layer: Literal["llm_api"] = "llm_api"
     provider: Literal["openai", "anthropic", "azure", "bedrock", "http", "grpc"]
     transport: Literal["http", "grpc"] = "http"
-    base_url: Optional[str] = None
-    endpoint: Optional[str] = None  # http path or grpc method override
-    api_key_env: Optional[str] = None
-    azure: Optional[AzureConfig] = None
-    aws: Optional[AwsConfig] = None
-    grpc: Optional[GrpcConfig] = None
+    base_url: str | None = None
+    endpoint: str | None = None  # http path or grpc method override
+    api_key_env: str | None = None
+    azure: AzureConfig | None = None
+    aws: AwsConfig | None = None
+    grpc: GrpcConfig | None = None
     params: dict[str, Any] = Field(default_factory=dict)  # model, max_tokens, ...
     stream: bool = False
     stream_mode: Literal["full", "first_token"] = "full"
-    request_template: Optional[str] = None  # jinja2 for provider=http
+    request_template: str | None = None  # jinja2 for provider=http
     response_mapping: dict[str, str] = Field(default_factory=dict)
-    dataset: Optional[str] = None
-    prompts: Optional[list[str]] = None
+    dataset: str | None = None
+    prompts: list[str] | None = None
 
     @model_validator(mode="after")
     def _check_endpoint(self):
@@ -135,7 +140,12 @@ class LlmApiTarget(BaseTarget):
                 "bedrock": None,
             }
             self.base_url = defaults.get(self.provider)
-        if self.transport == "http" and self.provider != "grpc" and not self.base_url and self.provider in ("azure",):
+        if (
+            self.transport == "http"
+            and self.provider != "grpc"
+            and not self.base_url
+            and self.provider in ("azure",)
+        ):
             raise ValueError("azure target requires base_url (https://<resource>.openai.azure.com)")
         return self
 
@@ -143,16 +153,16 @@ class LlmApiTarget(BaseTarget):
 class PipelineStage(BaseModel):
     stage: Literal["retrieve", "rerank", "generate", "agent"]
     # retrieve
-    vector_store: Optional[dict[str, Any]] = None
+    vector_store: dict[str, Any] | None = None
     top_k: int = 5
     # rerank
-    method: Optional[Literal["llm", "cross_encoder"]] = None
+    method: Literal["llm", "cross_encoder"] | None = None
     # generate / agent llm ref
-    llm: Optional[dict[str, Any]] = None
-    template: Optional[str] = None
+    llm: dict[str, Any] | None = None
+    template: str | None = None
     # agent
     max_iterations: int = 6
-    max_cost_usd: Optional[float] = None
+    max_cost_usd: float | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
@@ -168,15 +178,15 @@ class AppEndpointTarget(BaseTarget):
     layer: Literal["app_endpoint"] = "app_endpoint"
     transport: Literal["http", "grpc"] = "http"
     base_url: str
-    endpoint: Optional[str] = None
+    endpoint: str | None = None
     method: str = "POST"
     headers: dict[str, str] = Field(default_factory=dict)
-    request_template: Optional[str] = None
+    request_template: str | None = None
     response_mapping: dict[str, str] = Field(default_factory=dict)
-    grpc: Optional[GrpcConfig] = None
-    dataset: Optional[str] = None
-    prompts: Optional[list[str]] = None
-    api_key_env: Optional[str] = None
+    grpc: GrpcConfig | None = None
+    dataset: str | None = None
+    prompts: list[str] | None = None
+    api_key_env: str | None = None
 
 
 class AppObjectTarget(BaseTarget):
@@ -185,16 +195,17 @@ class AppObjectTarget(BaseTarget):
     python_path: str  # "module.path:factory_fn"
     call: str = "ainvoke"  # ainvoke|invoke|query|aquery|custom
     init_args: dict[str, Any] = Field(default_factory=dict)
-    dataset: Optional[str] = None
-    prompts: Optional[list[str]] = None
+    dataset: str | None = None
+    prompts: list[str] | None = None
 
 
-Target = Union[LlmApiTarget, PipelineTarget, AppEndpointTarget, AppObjectTarget]
+Target = LlmApiTarget | PipelineTarget | AppEndpointTarget | AppObjectTarget
 
 
 # ---------------------------------------------------------------------------
 # Scenarios / load / quality / thresholds / report
 # ---------------------------------------------------------------------------
+
 
 class HeuristicChecks(BaseModel):
     required_patterns: list[str] = Field(default_factory=list)
@@ -204,74 +215,75 @@ class HeuristicChecks(BaseModel):
     max_chars: int = 0
     non_empty: bool = True
     contains: list[str] = Field(default_factory=list)
-    exact_match_field: Optional[str] = None  # dataset field to compare against
+    exact_match_field: str | None = None  # dataset field to compare against
 
 
 class JudgeConfig(BaseModel):
     provider: str = "openai"
-    model: Optional[str] = None
+    model: str | None = None
     rubric: str = "Score the response quality from 1 to 5."
     scale: tuple[int, int] = (1, 5)
-    base_url: Optional[str] = None
-    api_key_env: Optional[str] = None
+    base_url: str | None = None
+    api_key_env: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
 
 class RagQualityConfig(BaseModel):
-    context_recall_min: Optional[float] = None  # informational threshold hint
+    context_recall_min: float | None = None  # informational threshold hint
 
 
 class QualityConfig(BaseModel):
     sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     heuristics: HeuristicChecks = Field(default_factory=HeuristicChecks)
-    judge: Optional[JudgeConfig] = None
-    rag: Optional[RagQualityConfig] = None
+    judge: JudgeConfig | None = None
+    rag: RagQualityConfig | None = None
 
 
 class ScenarioConfig(BaseModel):
     name: str
     target: str
     weight: float = 1.0
-    think_time: Optional[tuple[float, float]] = None
-    stream: Optional[bool] = None  # override target.stream
+    think_time: tuple[float, float] | None = None
+    stream: bool | None = None  # override target.stream
     params: dict[str, Any] = Field(default_factory=dict)  # merge over target.params
-    quality: Optional[QualityConfig] = None
+    quality: QualityConfig | None = None
     tags: dict[str, str] = Field(default_factory=dict)
 
 
 class LoadStage(BaseModel):
     users: int
-    spawn_rate: Optional[float] = None
+    spawn_rate: float | None = None
     duration: str  # e.g. "2m"
 
 
 class LoadConfig(BaseModel):
     users: int = 1
     spawn_rate: float = 1.0
-    duration: Optional[str] = None
-    stages: Optional[list[LoadStage]] = None
-    run_time: Optional[str] = None
+    duration: str | None = None
+    stages: list[LoadStage] | None = None
+    run_time: str | None = None
 
 
 class ThresholdRule(BaseModel):
     """One SLO rule. Metric names map to stats keys."""
-    p50_ms: Optional[float] = None
-    p90_ms: Optional[float] = None
-    p95_ms: Optional[float] = None
-    p99_ms: Optional[float] = None
-    ttft_p95_ms: Optional[float] = None
-    max_error_rate: Optional[float] = None
-    min_throughput_rps: Optional[float] = None
-    min_quality_score: Optional[float] = None
-    min_quality_pass_rate: Optional[float] = None
-    min_context_recall: Optional[float] = None
-    max_cost_usd: Optional[float] = None
+
+    p50_ms: float | None = None
+    p90_ms: float | None = None
+    p95_ms: float | None = None
+    p99_ms: float | None = None
+    ttft_p95_ms: float | None = None
+    max_error_rate: float | None = None
+    min_throughput_rps: float | None = None
+    min_quality_score: float | None = None
+    min_quality_pass_rate: float | None = None
+    min_context_recall: float | None = None
+    max_cost_usd: float | None = None
     # per-stage rules: dict stage_name -> {p95_ms: ...}
     stages: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class ThresholdsConfig(BaseModel):
-    global_: Optional[ThresholdRule] = Field(default=None, alias="global")
+    global_: ThresholdRule | None = Field(default=None, alias="global")
     scenarios: dict[str, ThresholdRule] = Field(default_factory=dict)
     on_fail: Literal["fail", "warn"] = "fail"
     alerts: list[dict[str, Any]] = Field(default_factory=list)
@@ -289,12 +301,13 @@ class ReportConfig(BaseModel):
     formats: list[Literal["csv", "json", "html"]] = Field(default_factory=lambda: ["csv", "json", "html"])
     output_dir: str = "results"
     percentiles: list[float] = Field(default_factory=lambda: [50.0, 90.0, 95.0, 99.0])
-    pricing: Optional[PricingConfig] = None
+    pricing: PricingConfig | None = None
 
 
 # ---------------------------------------------------------------------------
 # Root config
 # ---------------------------------------------------------------------------
+
 
 class PerfConfig(BaseModel):
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
@@ -302,7 +315,7 @@ class PerfConfig(BaseModel):
     targets: list[Target] = Field(default_factory=list)
     scenarios: list[ScenarioConfig] = Field(default_factory=list)
     load: LoadConfig = Field(default_factory=LoadConfig)
-    thresholds: Optional[ThresholdsConfig] = None
+    thresholds: ThresholdsConfig | None = None
     report: ReportConfig = Field(default_factory=ReportConfig)
 
     @model_validator(mode="after")
@@ -317,7 +330,7 @@ class PerfConfig(BaseModel):
         return self
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "PerfConfig":
+    def from_yaml(cls, path: str | Path) -> PerfConfig:
         path = Path(path)
         raw = yaml.safe_load(path.read_text()) or {}
         # allow shorthand: top-level targets may be list of dicts w/ layer inference
@@ -330,9 +343,7 @@ def _infer_layer(t: dict) -> dict:
         return t
     if "pipeline" in t:
         t["layer"] = "pipeline"
-    elif "python_path" in t:
-        t["layer"] = "app_object"
-    elif "framework" in t:
+    elif "python_path" in t or "framework" in t:
         t["layer"] = "app_object"
     elif t.get("provider") in ("openai", "anthropic", "azure", "bedrock", "grpc") or "params" in t:
         t["layer"] = "llm_api"
@@ -354,7 +365,7 @@ def _normalize(raw: dict, base_dir: Path) -> dict:
             if not p.is_absolute():
                 ds["source"] = str((base_dir / p).resolve())
     for t in raw.get("targets", []) or []:
-        for key in ("request_template",):
+        for _key in ("request_template",):
             pass  # templates are file paths resolved lazily by tasks
         for st in t.get("pipeline", []) or []:
             if st.get("template"):
@@ -364,5 +375,5 @@ def _normalize(raw: dict, base_dir: Path) -> dict:
     return raw
 
 
-def env_or_none(var: str) -> Optional[str]:
+def env_or_none(var: str) -> str | None:
     return os.environ.get(var)

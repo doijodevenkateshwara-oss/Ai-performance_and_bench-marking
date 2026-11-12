@@ -46,6 +46,28 @@ include = ["llm_perf*"]
 line-length = 110
 target-version = "py310"
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "PIE", "RUF", "S", "TRY", "PL"]
+ignore = [
+    # load-test code deliberately isolates failures per request; broad excepts
+    # are the error boundary and are converted into recorded errors
+    "BLE001",
+    "S110",   # try-except-pass in metric/logging paths (must never break a run)
+    "S112",   # try-except-continue in SSE parsing (skip malformed chunks)
+    "S104",   # binding 0.0.0.0 is intended for the metrics endpoint in containers
+    "S311",   # random is fine for load shaping, not crypto
+    # lazy imports are intentional: optional deps (boto3, grpc, locust) and
+    # keeping CLI startup fast
+    "PLC0415",
+    # stylistic rules that don't improve correctness here
+    "TRY003", "TRY004", "PLR2004", "PLR0911", "PLR0913", "PLR0917",
+    "PLW0603", "B904", "S310", "E501", "PLR0912", "TRY300",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "B017", "S106", "S108"]
+"llm_perf/cli.py" = ["B008"]
+
 [tool.black]
 line-length = 110
 

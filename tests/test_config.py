@@ -44,7 +44,7 @@ scenarios:
 def test_dataset_source_resolved_relative(tmp_path):
     (tmp_path / "data.jsonl").write_text('{"prompt": "hi"}\n')
     cfg_file = tmp_path / "cfg.yaml"
-    cfg_file.write_text(f"""
+    cfg_file.write_text("""
 datasets:
   d:
     source: data.jsonl

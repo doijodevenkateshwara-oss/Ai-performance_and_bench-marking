@@ -1,0 +1,91 @@
+# Example: agent pipeline — OpenAI-compatible tool-calling loop
+# The `agent` stage drives a multi-turn chat loop: the model emits tool_calls,
+# the engine executes them (http / python function / vector-store retrieve) and
+# feeds results back until the model produces a final answer or hits
+# max_iterations.
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-agent
+
+datasets:
+  questions:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+    sample: { strategy: random, count: 30, seed: 7 }
+
+targets:
+  - name: support_agent
+    layer: pipeline
+    dataset: questions
+    pipeline:
+      - stage: agent
+        max_iterations: 6
+        llm:
+          provider: openai            # openai | azure
+          model: gpt-4o
+          api_key_env: OPENAI_API_KEY
+          params: { temperature: 0.2, max_tokens: 1024 }
+        tools:
+          # type: http — POST args.input as JSON body to an external API
+          - name: search_docs
+            type: http
+            description: Search the internal docs index
+            url: http://localhost:8080/search
+            method: POST
+            api_key_env: SEARCH_API_KEY
+            parameters:
+              query: { type: string, description: search query }
+          # type: function — import path "module.path:callable"
+          - name: get_order_status
+            type: function
+            import_path: "example_tools.orders:get_status"   # args passed as kwargs
+            description: Look up order status by order id
+          # type: retrieve — same vector-store config as the retrieve stage
+          - name: company_kb
+            type: retrieve
+            description: Search the company knowledge base
+            vector_store:
+              type: json
+              path: ../datasets/docs.jsonl
+            top_k: 3
+
+scenarios:
+  - name: agent_load
+    target: support_agent
+    weight: 100
+    think_time: [0.5, 2.0]
+    quality:
+      sample_rate: 0.3
+      heuristics:
+        non_empty: true
+        min_chars: 10
+      judge:
+        provider: openai
+        model: gpt-4o-mini
+        rubric: "Score 1-5 on whether the answer resolves the user's question using tool results"
+        scale: [1, 5]
+
+load:
+  users: 3
+  spawn_rate: 1
+  duration: 5m
+
+thresholds:
+  scenarios:
+    agent_load:
+      p95_ms: 120000
+      min_quality_score: 0.6
+      stages:
+        agent_step: { p95_ms: 30000 }
+        agent_tool: { p95_ms: 10000 }
+  on_fail: fail
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/agent
+  pricing: { input_per_1k: 0.0025, output_per_1k: 0.01 }

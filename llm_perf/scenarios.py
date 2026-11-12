@@ -1,8 +1,8 @@
 """Build Locust User classes from config scenarios."""
+
 from __future__ import annotations
 
 import random
-from typing import Optional
 
 from locust import TaskSet, User, between, task
 
@@ -11,7 +11,7 @@ from .tasks import RequestContext
 
 # Registry populated by build_users(); consumed by generated locustfile.
 USERS: list[type[User]] = []
-CTX: Optional[RequestContext] = None
+CTX: RequestContext | None = None
 
 
 def _taskset_for(ctx: RequestContext, scenario: ScenarioConfig, wait):
@@ -19,7 +19,10 @@ def _taskset_for(ctx: RequestContext, scenario: ScenarioConfig, wait):
         wait_time = wait
 
         @task
-        def run(self):
+        def execute(self):
+            from .metrics import set_environment
+
+            set_environment(self.user.environment)
             ctx.run_scenario(scenario, random.Random())
 
     ScenarioTaskSet.__name__ = f"TaskSet_{scenario.name}"
@@ -41,10 +44,12 @@ def build_users(config: PerfConfig) -> list[type[User]]:
 
             def on_start(self):
                 from .metrics import record_users
+
                 record_users(1)
 
             def on_stop(self):
                 from .metrics import record_users
+
                 record_users(-1)
 
         ScenarioUser.tasks = [_taskset_for(CTX, sc, wait)]
@@ -54,5 +59,5 @@ def build_users(config: PerfConfig) -> list[type[User]]:
     return users
 
 
-def get_context() -> Optional[RequestContext]:
+def get_context() -> RequestContext | None:
     return CTX

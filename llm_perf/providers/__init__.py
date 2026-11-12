@@ -1,4 +1,5 @@
 """Provider adapter registry."""
+
 from __future__ import annotations
 
 from .anthropic import AnthropicAdapter
@@ -13,11 +14,7 @@ _ADAPTERS: dict[str, ProviderAdapter] = {}
 
 
 def get_adapter(provider: str, **kwargs) -> ProviderAdapter:
-    global _ADAPTERS
-    if provider == "openai" and kwargs.get("api_style"):
-        key = f"openai:{kwargs['api_style']}"
-    else:
-        key = provider
+    key = f"openai:{kwargs['api_style']}" if provider == "openai" and kwargs.get("api_style") else provider
     if key not in _ADAPTERS:
         if provider == "openai":
             _ADAPTERS[key] = OpenAIAdapter(api_style=kwargs.get("api_style", "chat"))
@@ -44,22 +41,35 @@ def call_llm(spec: RequestSpec) -> NormalizedResponse:
     if spec.provider == "grpc":
         return adapter.call(spec)  # type: ignore[attr-defined]
 
+    # http adapter is cheap to construct; fresh instance keeps response_mapping safe
+    if spec.provider == "http":
+        adapter = HttpAdapter().with_mapping(spec.extra.get("response_mapping") or {})
     url, headers, body = adapter.build_request(spec)
     from .http_common import HttpClient
+
     client = HttpClient(timeout_s=spec.timeout_s)
     if spec.stream and spec.provider in ("openai", "azure", "anthropic"):
         resp = client.post(url, headers, body, stream=True, timeout=spec.timeout_s)
         if resp.status_code >= 400:
-            return NormalizedResponse(text="", raw={"error": resp.text[:2000],
-                                                    "status": resp.status_code})
-        return adapter.parse_response(resp.status_code, dict(resp.headers), b"",
-                                       stream_iter=resp.iter_lines())
+            return NormalizedResponse(text="", raw={"error": resp.text[:2000], "status": resp.status_code})
+        return adapter.parse_response(
+            resp.status_code,
+            dict(resp.headers),
+            b"",
+            stream_iter=resp.iter_lines(),
+            stream_mode=spec.stream_mode,
+        )
     resp = client.post(url, headers, body, stream=False, timeout=spec.timeout_s)
     if resp.status_code >= 400:
-        return NormalizedResponse(text="", raw={"error": resp.text[:2000],
-                                                "status": resp.status_code})
+        return NormalizedResponse(text="", raw={"error": resp.text[:2000], "status": resp.status_code})
     return adapter.parse_response(resp.status_code, dict(resp.headers), resp.content)
 
 
-__all__ = ["get_adapter", "call_llm", "NormalizedResponse", "RequestSpec",
-           "ProviderAdapter", "usage_tokens"]
+__all__ = [
+    "NormalizedResponse",
+    "ProviderAdapter",
+    "RequestSpec",
+    "call_llm",
+    "get_adapter",
+    "usage_tokens",
+]

@@ -1,10 +1,9 @@
 """llm-perf CLI."""
+
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -26,6 +25,21 @@ def _load_or_exit(path: str, skip_connectivity: bool = False) -> PerfConfig:
     if not skip_connectivity:
         _check_env_vars(cfg)
     return cfg
+
+
+def _filter_config(cfg: PerfConfig, layers: str | None, scenarios: str | None) -> None:
+    """Narrow targets/scenarios in place so layers can run independently."""
+    if layers:
+        keep = {x.strip() for x in layers.split(",") if x.strip()}
+        cfg.targets = [t for t in cfg.targets if t.layer in keep]
+        names = {t.name for t in cfg.targets}
+        cfg.scenarios = [s for s in cfg.scenarios if s.target in names]
+    if scenarios:
+        keep_s = {x.strip() for x in scenarios.split(",") if x.strip()}
+        cfg.scenarios = [s for s in cfg.scenarios if s.name in keep_s]
+    if not cfg.targets or not cfg.scenarios:
+        console.print("[red]Filter removed all targets/scenarios[/red]")
+        raise typer.Exit(2)
 
 
 def _check_env_vars(cfg: PerfConfig) -> None:
@@ -50,12 +64,16 @@ def _check_env_vars(cfg: PerfConfig) -> None:
 
 
 @app.command()
-def validate(config: str = typer.Option(..., "-c", "--config"),
-             skip_connectivity: bool = typer.Option(False, "--skip-connectivity")):
+def validate(
+    config: str = typer.Option(..., "-c", "--config"),
+    skip_connectivity: bool = typer.Option(False, "--skip-connectivity"),
+):
     """Validate a config file (schema + env vars + dataset sources)."""
     cfg = _load_or_exit(config, skip_connectivity)
-    console.print(f"[green]Config OK[/green]: {len(cfg.targets)} targets, "
-                  f"{len(cfg.scenarios)} scenarios, {len(cfg.datasets)} datasets")
+    console.print(
+        f"[green]Config OK[/green]: {len(cfg.targets)} targets, "
+        f"{len(cfg.scenarios)} scenarios, {len(cfg.datasets)} datasets"
+    )
     for t in cfg.targets:
         console.print(f"  target: {t.name} (layer={t.layer})")
     for s in cfg.scenarios:
@@ -63,18 +81,25 @@ def validate(config: str = typer.Option(..., "-c", "--config"),
 
 
 @app.command()
-def run(config: str = typer.Option(..., "-c", "--config"),
-        users: Optional[int] = typer.Option(None, "--users"),
-        spawn_rate: Optional[float] = typer.Option(None, "--spawn-rate"),
-        duration: Optional[str] = typer.Option(None, "--duration", "-t"),
-        headless: bool = typer.Option(False, "--headless"),
-        web_port: int = typer.Option(8089, "--web-port"),
-        master: Optional[str] = typer.Option(None, "--master"),
-        workers: Optional[int] = typer.Option(None, "--workers"),
-        no_alerts: bool = typer.Option(False, "--no-alerts"),
-        skip_connectivity: bool = typer.Option(False, "--skip-connectivity")):
+def run(
+    config: str = typer.Option(..., "-c", "--config"),
+    users: int | None = typer.Option(None, "--users"),
+    spawn_rate: float | None = typer.Option(None, "--spawn-rate"),
+    duration: str | None = typer.Option(None, "--duration", "-t"),
+    headless: bool = typer.Option(False, "--headless"),
+    web_port: int = typer.Option(8089, "--web-port"),
+    master: str | None = typer.Option(None, "--master"),
+    workers: int | None = typer.Option(None, "--workers"),
+    no_alerts: bool = typer.Option(False, "--no-alerts"),
+    skip_connectivity: bool = typer.Option(False, "--skip-connectivity"),
+    layers: str | None = typer.Option(
+        None, "--layers", help="comma-separated layers to run, e.g. llm_api,pipeline"
+    ),
+    scenarios: str | None = typer.Option(None, "--scenarios", help="comma-separated scenario names to run"),
+):
     """Run a performance test."""
     cfg = _load_or_exit(config, skip_connectivity)
+    _filter_config(cfg, layers, scenarios)
     if no_alerts and cfg.thresholds:
         cfg.thresholds.alerts = []
     if users is not None:
@@ -87,11 +112,12 @@ def run(config: str = typer.Option(..., "-c", "--config"),
     # materialize effective config for the locustfile subprocess/in-process run
     effective = Path(config).resolve().parent / ".llm_perf_effective.yaml"
     import yaml
-    effective.write_text(yaml.safe_dump(cfg.model_dump(mode="json", by_alias=True),
-                                        sort_keys=False))
+
+    effective.write_text(yaml.safe_dump(cfg.model_dump(mode="json", by_alias=True), sort_keys=False))
     os.environ["LLM_PERF_CONFIG"] = str(effective)
 
     from locust.main import main as locust_main
+
     args = ["-f", "llm_perf.locustfile"]
     if headless or master or workers:
         args.append("--headless")
@@ -102,9 +128,11 @@ def run(config: str = typer.Option(..., "-c", "--config"),
         args += ["--master", "--master-bind-host", master]
     if workers:
         args += ["--worker"]
-    console.print(f"[cyan]Starting llm-perf[/cyan] config={config} "
-                  f"users={cfg.load.users} spawn={cfg.load.spawn_rate} "
-                  f"duration={cfg.load.duration or 'until stopped'}")
+    console.print(
+        f"[cyan]Starting llm-perf[/cyan] config={config} "
+        f"users={cfg.load.users} spawn={cfg.load.spawn_rate} "
+        f"duration={cfg.load.duration or 'until stopped'}"
+    )
     try:
         locust_main(args)
     except SystemExit as e:
@@ -119,6 +147,7 @@ def run(config: str = typer.Option(..., "-c", "--config"),
 def proto_gen_cmd(proto: str = typer.Option(..., "-p", "--proto")):
     """Pre-compile a .proto file for gRPC targets."""
     from .proto import proto_gen
+
     try:
         out = proto_gen(proto)
         console.print(f"[green]Generated stubs in[/green] {out}")
@@ -128,9 +157,11 @@ def proto_gen_cmd(proto: str = typer.Option(..., "-p", "--proto")):
 
 
 @app.command("quality-check")
-def quality_check(config: str = typer.Option(..., "-c", "--config"),
-                  response_file: str = typer.Option(..., "--response-file"),
-                  question: str = typer.Option("", "--question")):
+def quality_check(
+    config: str = typer.Option(..., "-c", "--config"),
+    response_file: str = typer.Option(..., "--response-file"),
+    question: str = typer.Option("", "--question"),
+):
     """Offline: score a saved response against a config's quality rules."""
     cfg = _load_or_exit(config, skip_connectivity=True)
     response = Path(response_file).read_text()
@@ -142,6 +173,7 @@ def quality_check(config: str = typer.Option(..., "-c", "--config"),
     if not sc.quality:
         console.print("[yellow]Scenario has no quality config[/yellow]")
     from .quality import evaluate_quality
+
     res = evaluate_quality(sc.quality, question=question, response=response)
     console.print(f"score={res.score} passed={res.passed} tags={res.failure_tags}")
     if res.judge_reason:
@@ -149,6 +181,7 @@ def quality_check(config: str = typer.Option(..., "-c", "--config"),
 
 
 # ----------------------------- dataset commands -----------------------------
+
 
 @dataset_app.command("list")
 def ds_list(config: str = typer.Option(..., "-c", "--config")):
@@ -165,6 +198,7 @@ def ds_show(name: str, config: str = typer.Option(..., "-c", "--config")):
         console.print(f"[red]Unknown dataset {name}[/red]")
         raise typer.Exit(2)
     from .datasets import Dataset
+
     ds = Dataset.load(name, ds_cfg)
     console.print(f"{name}: {len(ds.rows)} rows")
     for r in ds.rows[:5]:
@@ -172,14 +206,15 @@ def ds_show(name: str, config: str = typer.Option(..., "-c", "--config")):
 
 
 @dataset_app.command("sample")
-def ds_sample(name: str, config: str = typer.Option(..., "-c", "--config"),
-              n: int = typer.Option(5, "-n")):
+def ds_sample(name: str, config: str = typer.Option(..., "-c", "--config"), n: int = typer.Option(5, "-n")):
     import random
+
     cfg = _load_or_exit(config, skip_connectivity=True)
     ds_cfg = cfg.datasets.get(name)
     if not ds_cfg:
         raise typer.Exit(2)
     from .datasets import Dataset
+
     ds = Dataset.load(name, ds_cfg)
     rng = random.Random(0)
     for _ in range(min(n, len(ds.rows))):
@@ -187,14 +222,16 @@ def ds_sample(name: str, config: str = typer.Option(..., "-c", "--config"),
 
 
 @dataset_app.command("import")
-def ds_import(input: str = typer.Option(..., "--from"),
-              dest: str = typer.Option(..., "--to"),
-              fmt: str = typer.Option("jsonl", "--format"),
-              trace_fmt: str = typer.Option("jsonl", "--trace-format"),
-              mapping: Optional[str] = typer.Option(None, "--map",
-                  help="logical=path pairs, comma separated")):
+def ds_import(
+    input: str = typer.Option(..., "--from"),
+    dest: str = typer.Option(..., "--to"),
+    fmt: str = typer.Option("jsonl", "--format"),
+    trace_fmt: str = typer.Option("jsonl", "--trace-format"),
+    mapping: str | None = typer.Option(None, "--map", help="logical=path pairs, comma separated"),
+):
     """Import traces/rows into a dataset file."""
     from .datasets import import_traces, write_dataset
+
     map_dict = None
     if mapping:
         map_dict = dict(kv.split("=", 1) for kv in mapping.split(","))
@@ -209,7 +246,8 @@ def ds_import(input: str = typer.Option(..., "--from"),
 @dataset_app.command("validate")
 def ds_validate(path: str):
     """Validate a standalone dataset file."""
-    from .datasets import _read_rows, _detect_format
+    from .datasets import _detect_format, _read_rows
+
     try:
         fmt = _detect_format(path)
         rows = _read_rows(path, fmt)

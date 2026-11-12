@@ -1,4 +1,5 @@
 """Generic HTTP provider — Jinja2 request template + JSON-path response mapping."""
+
 from __future__ import annotations
 
 import json
@@ -81,12 +82,18 @@ class HttpAdapter:
             p = c = 0
         model = _jsonpath(obj, mapping.get("model", "model"))
         return NormalizedResponse(
-            text=str(text), prompt_tokens=p, completion_tokens=c, total_tokens=p + c,
-            model=str(model) if model else None, raw=obj,
-            stage_metrics={"e2e_s": time.monotonic() - start})
+            text=str(text),
+            prompt_tokens=p,
+            completion_tokens=c,
+            total_tokens=p + c,
+            model=str(model) if model else None,
+            raw=obj,
+            stage_metrics={"e2e_s": time.monotonic() - start},
+        )
 
-    _current_mapping: dict = {}
+    def __init__(self):
+        self._current_mapping: dict = {}
 
-    def with_mapping(self, mapping: dict) -> "HttpAdapter":
+    def with_mapping(self, mapping: dict) -> HttpAdapter:
         self._current_mapping = mapping or {}
         return self

@@ -9,3 +9,4 @@ results/
 datasets/local_*.jsonl
 chroma_db/
 protos/_generated/
+.llm_perf_effective.yaml

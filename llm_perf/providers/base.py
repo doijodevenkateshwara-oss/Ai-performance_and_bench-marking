@@ -1,22 +1,25 @@
 """Provider adapter protocol and normalized response types."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 
 @dataclass
 class NormalizedResponse:
     """Uniform response shape across providers."""
+
     text: str = ""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-    finish_reason: Optional[str] = None
-    model: Optional[str] = None
+    finish_reason: str | None = None
+    model: str | None = None
     raw: Any = None
-    ttft_s: Optional[float] = None          # set for streaming responses
+    ttft_s: float | None = None  # set for streaming responses
     stage_metrics: dict[str, float] = field(default_factory=dict)
+    tool_calls: list[dict] | None = None  # OpenAI-style tool calls from the model
 
     @property
     def tokens(self) -> int:
@@ -26,15 +29,17 @@ class NormalizedResponse:
 @dataclass
 class RequestSpec:
     """Everything needed to execute one LLM call."""
+
     provider: str
     prompt: str
     params: dict[str, Any] = field(default_factory=dict)
     stream: bool = False
-    stream_mode: str = "full"               # full | first_token
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    endpoint: Optional[str] = None
+    stream_mode: str = "full"  # full | first_token
+    api_key: str | None = None
+    base_url: str | None = None
+    endpoint: str | None = None
     timeout_s: float = 120.0
+    messages: list[dict] | None = None  # multi-turn override (agent loops)
     extra: dict[str, Any] = field(default_factory=dict)  # azure/aws/grpc config
 
 
@@ -43,19 +48,17 @@ class ProviderAdapter(Protocol):
 
     name: str
 
-    def default_base_url(self) -> Optional[str]:
-        ...
+    def default_base_url(self) -> str | None: ...
 
-    def default_endpoint(self, stream: bool) -> str:
-        ...
+    def default_endpoint(self, stream: bool) -> str: ...
 
     def build_request(self, spec: RequestSpec) -> tuple[str, dict, bytes | None]:
         """Return (url, headers, json_body_or_None)."""
         ...
 
-    def parse_response(self, status: int, headers: dict, body: bytes,
-                       stream_iter=None) -> NormalizedResponse:
-        ...
+    def parse_response(
+        self, status: int, headers: dict, body: bytes, stream_iter=None
+    ) -> NormalizedResponse: ...
 
 
 def usage_tokens(usage: dict | None) -> tuple[int, int, int]:

@@ -1,8 +1,8 @@
 """gRPC transport for app_endpoint layer — reuses providers.grpc machinery."""
+
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 from llm_perf.providers.base import NormalizedResponse, RequestSpec
 from llm_perf.providers.grpc import GrpcAdapter
@@ -13,7 +13,9 @@ class GrpcTransport:
         self.timeout = timeout_s
         self._adapter = GrpcAdapter()
 
-    def call(self, target_host: str, spec: RequestSpec) -> tuple[Optional[NormalizedResponse], float, Optional[str]]:
+    def call(
+        self, target_host: str, spec: RequestSpec
+    ) -> tuple[NormalizedResponse | None, float, str | None]:
         spec.base_url = target_host
         spec.timeout_s = self.timeout
         start = time.monotonic()

@@ -1,11 +1,11 @@
 """End-of-run statistical reports: CSV / JSON / HTML."""
+
 from __future__ import annotations
 
 import csv
 import json
 import time
 from pathlib import Path
-from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -46,9 +46,13 @@ def _entry_stats(entry) -> dict:
         return {}
 
 
-def aggregate(stats, config: PerfConfig, duration_s: float,
-              threshold_report: Optional[ThresholdReport] = None,
-              cost_by_scenario: Optional[dict] = None) -> dict:
+def aggregate(
+    stats,
+    config: PerfConfig,
+    duration_s: float,
+    threshold_report: ThresholdReport | None = None,
+    cost_by_scenario: dict | None = None,
+) -> dict:
     """Build the full report dict from Locust stats."""
     cost_by_scenario = cost_by_scenario or {}
     scenarios: dict[str, dict] = {}
@@ -64,8 +68,11 @@ def aggregate(stats, config: PerfConfig, duration_s: float,
         sc["methods"][method or ""] = _entry_stats(e)
 
     # totals
-    total_req = getattr(stats, "total_num_requests", lambda: 0)() if callable(
-        getattr(stats, "total_num_requests", None)) else getattr(stats, "num_requests", 0)
+    total_req = (
+        getattr(stats, "total_num_requests", lambda: 0)()
+        if callable(getattr(stats, "total_num_requests", None))
+        else getattr(stats, "num_requests", 0)
+    )
     try:
         total_req = stats.total.num_requests
         total_fail = stats.total.num_failures
@@ -75,18 +82,20 @@ def aggregate(stats, config: PerfConfig, duration_s: float,
     for name, sc in scenarios.items():
         req = sc["methods"].get("", {}) or sc["methods"].get("GET", {}) or {}
         n = req.get("requests", 0)
-        sc.update({
-            "requests": n,
-            "failures": req.get("failures", 0),
-            "error_rate": req.get("error_rate", 0.0),
-            "avg_ms": req.get("avg_ms"),
-            "p50_ms": req.get("p50"),
-            "p90_ms": req.get("p90"),
-            "p95_ms": req.get("p95"),
-            "p99_ms": req.get("p99"),
-            "rps": (n / duration_s) if duration_s else None,
-            "cost_usd": cost_by_scenario.get(name),
-        })
+        sc.update(
+            {
+                "requests": n,
+                "failures": req.get("failures", 0),
+                "error_rate": req.get("error_rate", 0.0),
+                "avg_ms": req.get("avg_ms"),
+                "p50_ms": req.get("p50"),
+                "p90_ms": req.get("p90"),
+                "p95_ms": req.get("p95"),
+                "p99_ms": req.get("p99"),
+                "rps": (n / duration_s) if duration_s else None,
+                "cost_usd": cost_by_scenario.get(name),
+            }
+        )
         # derived custom stats
         ttft = sc["methods"].get("TTFT", {})
         sc["ttft_p95_ms"] = ttft.get("p95")
@@ -105,17 +114,26 @@ def aggregate(stats, config: PerfConfig, duration_s: float,
     verdicts = []
     if threshold_report:
         for r in threshold_report.results:
-            verdicts.append({
-                "rule": r.name, "metric": r.metric, "comparator": r.comparator,
-                "threshold": r.threshold, "actual": r.actual,
-                "passed": r.passed, "scope": r.scope,
-            })
+            verdicts.append(
+                {
+                    "rule": r.name,
+                    "metric": r.metric,
+                    "comparator": r.comparator,
+                    "threshold": r.threshold,
+                    "actual": r.actual,
+                    "passed": r.passed,
+                    "scope": r.scope,
+                }
+            )
 
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "duration_s": duration_s,
-        "totals": {"requests": total_req, "failures": total_fail,
-                   "error_rate": (total_fail / total_req) if total_req else 0.0},
+        "totals": {
+            "requests": total_req,
+            "failures": total_fail,
+            "error_rate": (total_fail / total_req) if total_req else 0.0,
+        },
         "scenarios": list(scenarios.values()),
         "thresholds": {
             "all_passed": threshold_report.all_passed if threshold_report else None,
@@ -125,8 +143,9 @@ def aggregate(stats, config: PerfConfig, duration_s: float,
     }
 
 
-def write_reports(report: dict, config: PerfConfig,
-                  threshold_report: Optional[ThresholdReport] = None) -> list[Path]:
+def write_reports(
+    report: dict, config: PerfConfig, threshold_report: ThresholdReport | None = None
+) -> list[Path]:
     out_dir = Path(config.report.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S")
@@ -141,19 +160,26 @@ def write_reports(report: dict, config: PerfConfig,
         p = out_dir / f"llm-perf-{ts}.csv"
         rows = []
         for sc in report["scenarios"]:
-            rows.append({
-                "scenario": sc["scenario"], "requests": sc.get("requests"),
-                "failures": sc.get("failures"), "error_rate": sc.get("error_rate"),
-                "avg_ms": sc.get("avg_ms"), "p50_ms": sc.get("p50_ms"),
-                "p90_ms": sc.get("p90_ms"), "p95_ms": sc.get("p95_ms"),
-                "p99_ms": sc.get("p99_ms"), "rps": sc.get("rps"),
-                "ttft_p95_ms": sc.get("ttft_p95_ms"),
-                "total_tokens": sc.get("total_tokens"),
-                "tokens_per_sec_avg": sc.get("tokens_per_sec_avg"),
-                "quality_score_avg": sc.get("quality_score_avg"),
-                "context_recall_avg": sc.get("context_recall_avg"),
-                "cost_usd": sc.get("cost_usd"),
-            })
+            rows.append(
+                {
+                    "scenario": sc["scenario"],
+                    "requests": sc.get("requests"),
+                    "failures": sc.get("failures"),
+                    "error_rate": sc.get("error_rate"),
+                    "avg_ms": sc.get("avg_ms"),
+                    "p50_ms": sc.get("p50_ms"),
+                    "p90_ms": sc.get("p90_ms"),
+                    "p95_ms": sc.get("p95_ms"),
+                    "p99_ms": sc.get("p99_ms"),
+                    "rps": sc.get("rps"),
+                    "ttft_p95_ms": sc.get("ttft_p95_ms"),
+                    "total_tokens": sc.get("total_tokens"),
+                    "tokens_per_sec_avg": sc.get("tokens_per_sec_avg"),
+                    "quality_score_avg": sc.get("quality_score_avg"),
+                    "context_recall_avg": sc.get("context_recall_avg"),
+                    "cost_usd": sc.get("cost_usd"),
+                }
+            )
         if rows:
             with p.open("w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -163,8 +189,10 @@ def write_reports(report: dict, config: PerfConfig,
 
     if "html" in config.report.formats:
         p = out_dir / f"llm-perf-{ts}.html"
-        env = Environment(loader=FileSystemLoader(Path(__file__).parent / "templates"),
-                          autoescape=select_autoescape(["html"]))
+        env = Environment(
+            loader=FileSystemLoader(Path(__file__).parent / "templates"),
+            autoescape=select_autoescape(["html"]),
+        )
         tpl = env.get_template("report.html")
         p.write_text(tpl.render(report=report))
         written.append(p)

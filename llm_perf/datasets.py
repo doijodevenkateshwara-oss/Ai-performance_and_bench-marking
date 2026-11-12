@@ -1,4 +1,5 @@
 """Dataset loading, sampling, and templating for prompts."""
+
 from __future__ import annotations
 
 import csv
@@ -7,7 +8,6 @@ import json
 import random
 import urllib.request
 from pathlib import Path
-from typing import Any, Iterator, Optional
 
 import yaml
 
@@ -26,7 +26,7 @@ class Dataset:
     # -- loading ---------------------------------------------------------
 
     @classmethod
-    def load(cls, name: str, cfg: DatasetConfig) -> "Dataset":
+    def load(cls, name: str, cfg: DatasetConfig) -> Dataset:
         fmt = cfg.format or _detect_format(cfg.source)
         rows = _read_rows(cfg.source, fmt)
         rows = [_map_columns(r, cfg.columns) for r in rows]
@@ -52,11 +52,10 @@ class Dataset:
             if isinstance(val, str) and "{" in val:
                 out[key] = _render_template(val, row, self.vars, rng)
         # fill vars pools into a special 'vars' dict for prompt templates
-        out["vars"] = {k: rng.choice(v) if isinstance(v, list) and v else v
-                       for k, v in self.vars.items()}
+        out["vars"] = {k: rng.choice(v) if isinstance(v, list) and v else v for k, v in self.vars.items()}
         return out
 
-    def shard(self, worker_index: int, num_workers: int) -> "Dataset":
+    def shard(self, worker_index: int, num_workers: int) -> Dataset:
         """Deterministic shard for distributed runs."""
         if num_workers <= 1:
             return self
@@ -65,12 +64,12 @@ class Dataset:
 
 
 def _detect_format(source: str) -> str:
-    s = source.split("?")[0].lower()
-    if s.endswith(".jsonl") or s.endswith(".ndjson"):
+    s = source.split("?", maxsplit=1)[0].lower()
+    if s.endswith((".jsonl", ".ndjson")):
         return "jsonl"
     if s.endswith(".csv"):
         return "csv"
-    if s.endswith(".yaml") or s.endswith(".yml"):
+    if s.endswith((".yaml", ".yml")):
         return "yaml"
     if s.endswith(".json"):
         # treat .json as jsonl if multiple objects, else yaml-safe; default jsonl-ish
@@ -92,8 +91,8 @@ def _read_rows(source: str, fmt: str) -> list[dict]:
         return [dict(r) for r in csv.DictReader(io.StringIO(text))]
     # jsonl
     rows = []
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if line:
             rows.append(json.loads(line))
     return rows
@@ -105,11 +104,13 @@ def _read_text(source: str) -> str:
             return r.read().decode("utf-8")
     if source.startswith("s3://"):
         import boto3
+
         bucket, key = source[5:].split("/", 1)
         s3 = boto3.client("s3")
         return s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
     if source.startswith("gs://"):
         import gcsfs
+
         with gcsfs.GCSFileSystem().open(source[5:], "rb") as f:
             return f.read().decode("utf-8")
     return Path(source).read_text(encoding="utf-8")
@@ -126,7 +127,7 @@ def _map_columns(row: dict, columns: dict[str, str]) -> dict:
     return out
 
 
-def _apply_sample(rows: list[dict], sample: Optional[DatasetSample]) -> list[dict]:
+def _apply_sample(rows: list[dict], sample: DatasetSample | None) -> list[dict]:
     if not sample:
         return rows
     if sample.strategy == "first" and sample.count:
@@ -139,7 +140,7 @@ def _apply_sample(rows: list[dict], sample: Optional[DatasetSample]) -> list[dic
             pool = pool[: sample.count]
     elif sample.strategy == "weighted" and sample.weights:
         # weight by a row field: weights maps field-value -> weight
-        weight_field = next(iter(sample.weights)) if sample.weights else None
+        next(iter(sample.weights)) if sample.weights else None
         # allow weights keyed by column name with nested dict, else treat keys as values of 'category'/'tag'/'label'
         field = _guess_weight_field(rows, sample.weights)
         weighted = []
@@ -168,6 +169,7 @@ def _guess_weight_field(rows: list[dict], weights: dict) -> str:
 
 def _render_template(template: str, row: dict, vars_: dict, rng: random.Random) -> str:
     import re
+
     def repl(m):
         key = m.group(1).strip()
         if key in row:
@@ -178,6 +180,7 @@ def _render_template(template: str, row: dict, vars_: dict, rng: random.Random) 
         if key in row.get("vars", {}):
             return str(row["vars"][key])
         return m.group(0)
+
     return re.sub(r"\{\{?\s*([^{}]+?)\s*\}?\}", repl, template)
 
 
@@ -185,32 +188,36 @@ def _render_template(template: str, row: dict, vars_: dict, rng: random.Random) 
 # Trace import
 # ---------------------------------------------------------------------------
 
-def import_traces(path: str, fmt: str = "jsonl", mapping: Optional[dict] = None) -> list[dict]:
+
+def import_traces(path: str, fmt: str = "jsonl", mapping: dict | None = None) -> list[dict]:
     """Convert production trace exports into dataset rows.
 
     Supported fmts: 'jsonl' (generic), 'langsmith', 'langfuse'.
     mapping: {logical_field: jmespath-ish dotted path} e.g. {'prompt': 'inputs.question'}
     """
-    rows = _read_rows(path, "jsonl" if fmt == "jsonl" else "jsonl")
+    rows = _read_rows(path, "jsonl")
     out = []
     for r in rows:
         if fmt == "langsmith":
-            out.append({
-                "prompt": _dig(r, "inputs.question") or _dig(r, "inputs.input") or "",
-                "expected": _dig(r, "outputs.answer"),
-                "raw": r,
-            })
+            out.append(
+                {
+                    "prompt": _dig(r, "inputs.question") or _dig(r, "inputs.input") or "",
+                    "expected": _dig(r, "outputs.answer"),
+                    "raw": r,
+                }
+            )
         elif fmt == "langfuse":
-            out.append({
-                "prompt": _dig(r, "input") or _dig(r, "input.prompt") or "",
-                "expected": _dig(r, "output"),
-                "raw": r,
-            })
+            out.append(
+                {
+                    "prompt": _dig(r, "input") or _dig(r, "input.prompt") or "",
+                    "expected": _dig(r, "output"),
+                    "raw": r,
+                }
+            )
+        elif mapping:
+            out.append({k: _dig(r, v) for k, v in mapping.items()})
         else:
-            if mapping:
-                out.append({k: _dig(r, v) for k, v in mapping.items()})
-            else:
-                out.append(r)
+            out.append(r)
     return [r for r in out if r.get("prompt")]
 
 

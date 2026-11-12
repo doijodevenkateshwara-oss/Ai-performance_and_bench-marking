@@ -1,9 +1,10 @@
 """Prompt pools and {var} templating."""
+
 from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -33,7 +34,9 @@ def _load_file(path: Path) -> list[str]:
             return [str(v) for v in data.values()]
         return [str(x.get("prompt", x) if isinstance(x, dict) else x) for x in data]
     if path.suffix == ".csv":
-        import csv, io
+        import csv
+        import io
+
         return [r.get("prompt", "") for r in csv.DictReader(io.StringIO(text)) if r.get("prompt")]
     # txt: one prompt per line (blank-line separated blocks kept whole)
     blocks, cur = [], []
@@ -51,14 +54,16 @@ def _load_file(path: Path) -> list[str]:
 class PromptPicker:
     """Picks prompts from inline list or dataset rows, renders {var} placeholders."""
 
-    def __init__(self, prompts: Optional[list[str]] = None, dataset: Optional[Any] = None,
-                 vars_: Optional[dict] = None):
+    def __init__(
+        self, prompts: list[str] | None = None, dataset: Any | None = None, vars_: dict | None = None
+    ):
         self.prompts = prompts or []
         self.dataset = dataset
         self.vars = vars_ or {}
 
-    def _render(self, text: str, row: Optional[dict], rng: random.Random) -> str:
+    def _render(self, text: str, row: dict | None, rng: random.Random) -> str:
         import re
+
         def repl(m):
             key = m.group(1).strip().strip("{}")
             if row and key in row:
@@ -67,19 +72,20 @@ class PromptPicker:
                 v = self.vars[key]
                 return str(rng.choice(v) if isinstance(v, list) and v else v)
             return m.group(0)
+
         return re.sub(r"\{\{?\s*([A-Za-z_][\w.]*)\s*\}?\}", repl, text)
 
-    def pick(self, rng: random.Random, row: Optional[dict] = None) -> str:
+    def pick(self, rng: random.Random, row: dict | None = None) -> str:
         text = ""
         if row is not None:
             for key in ("prompt", "question", "input", "text"):
-                if key in row and row[key]:
+                if row.get(key):
                     text = str(row[key])
                     break
         if not text and self.dataset is not None:
             sampled = self.dataset.sample(rng)
             for key in ("prompt", "question", "input", "text"):
-                if key in sampled and sampled[key]:
+                if sampled.get(key):
                     text = str(sampled[key])
                     break
             if not text and sampled:

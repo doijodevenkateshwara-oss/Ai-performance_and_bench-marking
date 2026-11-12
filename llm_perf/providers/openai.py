@@ -1,4 +1,5 @@
 """OpenAI-compatible provider (chat completions, responses API, embeddings)."""
+
 from __future__ import annotations
 
 import json
@@ -24,13 +25,25 @@ class OpenAIAdapter:
         headers = auth_headers(spec)
         model = spec.params.get("model", "gpt-4o-mini")
         if self.api_style == "chat":
+            messages = spec.messages or [{"role": "user", "content": spec.prompt}]
             body = {
                 "model": model,
-                "messages": [{"role": "user", "content": spec.prompt}],
+                "messages": messages,
             }
-            for k in ("max_tokens", "max_completion_tokens", "temperature", "top_p",
-                      "stop", "presence_penalty", "frequency_penalty", "seed", "tools",
-                      "tool_choice", "response_format", "n"):
+            for k in (
+                "max_tokens",
+                "max_completion_tokens",
+                "temperature",
+                "top_p",
+                "stop",
+                "presence_penalty",
+                "frequency_penalty",
+                "seed",
+                "tools",
+                "tool_choice",
+                "response_format",
+                "n",
+            ):
                 if k in spec.params:
                     body[k] = spec.params[k]
             if spec.stream:
@@ -44,14 +57,23 @@ class OpenAIAdapter:
                     body[k] = spec.params[k]
             if spec.stream:
                 body["stream"] = True
-        return f"{(spec.base_url or self.default_base_url()).rstrip('/')}{spec.endpoint or self.default_endpoint(spec.stream)}", headers, body
+        return (
+            f"{(spec.base_url or self.default_base_url()).rstrip('/')}{spec.endpoint or self.default_endpoint(spec.stream)}",
+            headers,
+            body,
+        )
 
-    def parse_response(self, status, headers, body, stream_iter=None) -> NormalizedResponse:
+    def parse_response(
+        self, status, headers, body, stream_iter=None, stream_mode: str = "full"
+    ) -> NormalizedResponse:
         if stream_iter is not None:
-            text, ttft, usage = stream_sse(stream_iter, openai_sse_extractor)
+            text, ttft, usage, _completed = stream_sse(
+                stream_iter, openai_sse_extractor, first_token_only=(stream_mode == "first_token")
+            )
             p, c, t = usage_tokens(usage)
-            return NormalizedResponse(text=text, prompt_tokens=p, completion_tokens=c,
-                                      total_tokens=t, ttft_s=ttft, raw=usage)
+            return NormalizedResponse(
+                text=text, prompt_tokens=p, completion_tokens=c, total_tokens=t, ttft_s=ttft, raw=usage
+            )
         try:
             obj = json.loads(body)
         except json.JSONDecodeError:
@@ -65,15 +87,28 @@ class OpenAIAdapter:
             usage = obj.get("usage") or {}
             p = int(usage.get("input_tokens") or 0)
             c = int(usage.get("output_tokens") or 0)
-            return NormalizedResponse(text=text, prompt_tokens=p, completion_tokens=c,
-                                      total_tokens=p + c, finish_reason=obj.get("status"),
-                                      model=obj.get("model"), raw=obj)
+            return NormalizedResponse(
+                text=text,
+                prompt_tokens=p,
+                completion_tokens=c,
+                total_tokens=p + c,
+                finish_reason=obj.get("status"),
+                model=obj.get("model"),
+                raw=obj,
+            )
         choice = (obj.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
         text = msg.get("content") or ""
         if isinstance(text, list):  # content parts
             text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
         p, c, t = usage_tokens(obj.get("usage"))
-        return NormalizedResponse(text=text, prompt_tokens=p, completion_tokens=c,
-                                  total_tokens=t, finish_reason=choice.get("finish_reason"),
-                                  model=obj.get("model"), raw=obj)
+        return NormalizedResponse(
+            text=text,
+            prompt_tokens=p,
+            completion_tokens=c,
+            total_tokens=t,
+            finish_reason=choice.get("finish_reason"),
+            model=obj.get("model"),
+            raw=obj,
+            tool_calls=msg.get("tool_calls"),
+        )

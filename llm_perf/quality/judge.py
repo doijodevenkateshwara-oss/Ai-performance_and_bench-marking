@@ -1,14 +1,14 @@
 """LLM-as-judge quality scoring via any configured provider."""
+
 from __future__ import annotations
 
+import contextlib
 import json
 import random
 import re
-from typing import Optional
 
 from ..config import JudgeConfig
 from ..providers import RequestSpec, call_llm
-
 
 JUDGE_PROMPT = """You are an impartial evaluator. {rubric}
 
@@ -26,25 +26,22 @@ CONTEXT_BLOCK = """[CONTEXT]
 """
 
 
-def _build_judge_prompt(cfg: JudgeConfig, question: str, response: str,
-                        context: Optional[str] = None) -> str:
+def _build_judge_prompt(cfg: JudgeConfig, question: str, response: str, context: str | None = None) -> str:
     lo, hi = cfg.scale
     ctx = CONTEXT_BLOCK.format(context=context[:4000]) if context else ""
-    return JUDGE_PROMPT.format(rubric=cfg.rubric, question=question[:4000],
-                               response=response[:6000], context_block=ctx,
-                               lo=lo, hi=hi)
+    return JUDGE_PROMPT.format(
+        rubric=cfg.rubric, question=question[:4000], response=response[:6000], context_block=ctx, lo=lo, hi=hi
+    )
 
 
-def _parse_score(text: str, lo: int, hi: int) -> tuple[Optional[float], str]:
+def _parse_score(text: str, lo: int, hi: int) -> tuple[float | None, str]:
     """Extract score from judge output; normalize to 0..1."""
     # try JSON first
     m = re.search(r"\{[^{}]*\"score\"[^{}]*\}", text, re.DOTALL)
     candidate = None
     if m:
-        try:
+        with contextlib.suppress(Exception):
             candidate = json.loads(m.group(0)).get("score")
-        except Exception:
-            pass
     if candidate is None:
         m2 = re.search(r"score[^\d\-]*(\d+(?:\.\d+)?)", text, re.IGNORECASE)
         if m2:
@@ -61,8 +58,9 @@ def _parse_score(text: str, lo: int, hi: int) -> tuple[Optional[float], str]:
     return max(0.0, min(1.0, norm)), "ok"
 
 
-def judge_score(cfg: JudgeConfig, question: str, response: str,
-                context: Optional[str] = None, timeout_s: float = 60.0) -> tuple[Optional[float], str]:
+def judge_score(
+    cfg: JudgeConfig, question: str, response: str, context: str | None = None, timeout_s: float = 60.0
+) -> tuple[float | None, str]:
     """Returns (normalized_score 0..1, reason)."""
     prompt = _build_judge_prompt(cfg, question, response, context)
     params = dict(cfg.params)
@@ -70,8 +68,12 @@ def judge_score(cfg: JudgeConfig, question: str, response: str,
     params.setdefault("max_tokens", 256)
     params.setdefault("temperature", 0.0)
     spec = RequestSpec(
-        provider=cfg.provider, prompt=prompt, params=params, stream=False,
-        base_url=cfg.base_url, api_key=cfg.api_key_env and __import__("os").environ.get(cfg.api_key_env),
+        provider=cfg.provider,
+        prompt=prompt,
+        params=params,
+        stream=False,
+        base_url=cfg.base_url,
+        api_key=cfg.api_key_env and __import__("os").environ.get(cfg.api_key_env),
         timeout_s=timeout_s,
     )
     try:

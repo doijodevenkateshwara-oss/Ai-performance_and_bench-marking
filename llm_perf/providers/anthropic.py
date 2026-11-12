@@ -1,10 +1,11 @@
 """Anthropic Messages API provider."""
+
 from __future__ import annotations
 
 import json
 
 from .base import NormalizedResponse, RequestSpec
-from .http_common import auth_headers, anthropic_sse_extractor, stream_sse
+from .http_common import anthropic_sse_extractor, auth_headers, stream_sse
 
 
 class AnthropicAdapter:
@@ -34,15 +35,19 @@ class AnthropicAdapter:
         base = (spec.base_url or self.default_base_url()).rstrip("/")
         return f"{base}{spec.endpoint or self.default_endpoint(spec.stream)}", headers, body
 
-    def parse_response(self, status, headers, body, stream_iter=None) -> NormalizedResponse:
+    def parse_response(
+        self, status, headers, body, stream_iter=None, stream_mode: str = "full"
+    ) -> NormalizedResponse:
         if stream_iter is not None:
-            # Anthropic SSE includes `event:` lines; our extractor sniffs JSON type,
-            # but event lines must be skipped — stream_sse skips non-"data:" lines already.
-            text, ttft, usage = stream_sse(stream_iter, anthropic_sse_extractor)
+            # Anthropic SSE includes `event:` lines; stream_sse skips non-"data:" lines.
+            text, ttft, usage, _completed = stream_sse(
+                stream_iter, anthropic_sse_extractor, first_token_only=(stream_mode == "first_token")
+            )
             p = int((usage or {}).get("input_tokens") or 0)
             c = int((usage or {}).get("output_tokens") or 0)
-            return NormalizedResponse(text=text, prompt_tokens=p, completion_tokens=c,
-                                      total_tokens=p + c, ttft_s=ttft, raw=usage)
+            return NormalizedResponse(
+                text=text, prompt_tokens=p, completion_tokens=c, total_tokens=p + c, ttft_s=ttft, raw=usage
+            )
         try:
             obj = json.loads(body)
         except json.JSONDecodeError:
@@ -56,6 +61,12 @@ class AnthropicAdapter:
         usage = obj.get("usage") or {}
         p = int(usage.get("input_tokens") or 0)
         c = int(usage.get("output_tokens") or 0)
-        return NormalizedResponse(text="".join(parts), prompt_tokens=p, completion_tokens=c,
-                                  total_tokens=p + c, finish_reason=obj.get("stop_reason"),
-                                  model=obj.get("model"), raw=obj)
+        return NormalizedResponse(
+            text="".join(parts),
+            prompt_tokens=p,
+            completion_tokens=c,
+            total_tokens=p + c,
+            finish_reason=obj.get("stop_reason"),
+            model=obj.get("model"),
+            raw=obj,
+        )

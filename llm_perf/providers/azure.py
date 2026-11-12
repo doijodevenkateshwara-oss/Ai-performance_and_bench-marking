@@ -1,4 +1,5 @@
 """Azure OpenAI provider — OpenAI wire format with api-key header + api-version."""
+
 from __future__ import annotations
 
 from .base import RequestSpec

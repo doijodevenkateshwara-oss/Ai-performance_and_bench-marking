@@ -1,10 +1,9 @@
 """AWS Bedrock provider via boto3 Converse API (sync client in threadpool)."""
+
 from __future__ import annotations
 
 import concurrent.futures
-import json
 import time
-from typing import Optional
 
 from .base import NormalizedResponse, RequestSpec
 
@@ -13,11 +12,14 @@ _clients: dict = {}
 
 
 def _get_client(spec: RequestSpec):
-    key = (spec.extra.get("aws", {}).get("region"),
-           spec.extra.get("aws", {}).get("auth"),
-           spec.extra.get("aws", {}).get("profile"))
+    key = (
+        spec.extra.get("aws", {}).get("region"),
+        spec.extra.get("aws", {}).get("auth"),
+        spec.extra.get("aws", {}).get("profile"),
+    )
     if key not in _clients:
         import boto3
+
         aws_cfg = spec.extra.get("aws", {})
         kwargs = {}
         if aws_cfg.get("region"):
@@ -47,8 +49,12 @@ class BedrockAdapter:
             "messages": [{"role": "user", "content": [{"text": spec.prompt}]}],
             "inferenceConfig": {},
         }
-        for k, bk in (("max_tokens", "maxTokens"), ("temperature", "temperature"),
-                      ("top_p", "topP"), ("stop", "stopSequences")):
+        for k, bk in (
+            ("max_tokens", "maxTokens"),
+            ("temperature", "temperature"),
+            ("top_p", "topP"),
+            ("stop", "stopSequences"),
+        ):
             if k in params:
                 body["inferenceConfig"][bk] = params[k]
         if "system" in params:
@@ -84,9 +90,15 @@ class BedrockAdapter:
         p = int(usage.get("inputTokens") or 0)
         c = int(usage.get("outputTokens") or 0)
         return NormalizedResponse(
-            text=text, prompt_tokens=p, completion_tokens=c, total_tokens=p + c,
-            finish_reason=(resp.get("stopReason")), model=inp["modelId"],
-            raw=resp, stage_metrics={"e2e_s": elapsed})
+            text=text,
+            prompt_tokens=p,
+            completion_tokens=c,
+            total_tokens=p + c,
+            finish_reason=(resp.get("stopReason")),
+            model=inp["modelId"],
+            raw=resp,
+            stage_metrics={"e2e_s": elapsed},
+        )
 
     def _call_stream(self, client, inp, spec, start) -> NormalizedResponse:
         text_parts = []
@@ -95,10 +107,12 @@ class BedrockAdapter:
         model_id = inp.pop("modelId")
         inference = inp.pop("inferenceConfig", {})
         try:
-            stream = client.converse_stream(modelId=model_id,
-                                            messages=inp["messages"],
-                                            inferenceConfig=inference or None,
-                                            **({"system": inp["system"]} if "system" in inp else {}))
+            stream = client.converse_stream(
+                modelId=model_id,
+                messages=inp["messages"],
+                inferenceConfig=inference or None,
+                **({"system": inp["system"]} if "system" in inp else {}),
+            )
             for event in stream.get("stream"):
                 if "contentBlockDelta" in event:
                     delta = event["contentBlockDelta"].get("delta", {}).get("text", "")
@@ -114,6 +128,12 @@ class BedrockAdapter:
         p = int(usage.get("inputTokens") or 0)
         c = int(usage.get("outputTokens") or 0)
         return NormalizedResponse(
-            text="".join(text_parts), prompt_tokens=p, completion_tokens=c,
-            total_tokens=p + c, ttft_s=ttft or elapsed, model=model_id,
-            raw=usage, stage_metrics={"e2e_s": elapsed})
+            text="".join(text_parts),
+            prompt_tokens=p,
+            completion_tokens=c,
+            total_tokens=p + c,
+            ttft_s=ttft or elapsed,
+            model=model_id,
+            raw=usage,
+            stage_metrics={"e2e_s": elapsed},
+        )

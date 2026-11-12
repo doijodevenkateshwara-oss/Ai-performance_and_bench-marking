@@ -1,13 +1,15 @@
 """Shared helpers for HTTP providers."""
+
 from __future__ import annotations
 
 import json
 import time
-from typing import Iterator, Optional
+from collections.abc import Iterator
+from typing import ClassVar
 
 import requests
 
-from .base import NormalizedResponse, RequestSpec, usage_tokens
+from .base import RequestSpec
 
 
 def auth_headers(spec: RequestSpec) -> dict:
@@ -17,24 +19,27 @@ def auth_headers(spec: RequestSpec) -> dict:
     return h
 
 
-def stream_sse(iter_lines: Iterator[bytes], content_extractor) -> tuple[str, float, dict | None]:
+def stream_sse(
+    iter_lines: Iterator[bytes], content_extractor, first_token_only: bool = False
+) -> tuple[str, float, dict | None, bool]:
     """Consume an SSE stream.
 
-    content_extractor(line_bytes) -> (text_delta, usage_dict_or_None, done_bool)
-    Returns (full_text, ttft_seconds, usage).
+    content_extractor(payload) -> (text_delta, usage_dict_or_None, done_bool)
+    Returns (full_text, ttft_seconds, usage, completed).
+    With first_token_only=True, stops after the first content chunk
+    (completed=False) — used for TTFT-focused scenarios.
     """
     text_parts: list[str] = []
-    ttft: Optional[float] = None
+    ttft: float | None = None
     usage = None
+    completed = False
     start = time.monotonic()
     for raw in iter_lines:
-        if isinstance(raw, bytes):
-            line = raw.decode("utf-8", "replace").strip()
-        else:
-            line = str(raw).strip()
+        line = raw.decode("utf-8", "replace").strip() if isinstance(raw, bytes) else str(raw).strip()
         if not line or line.startswith(":"):
             continue
         if line == "data: [DONE]":
+            completed = True
             break
         if not line.startswith("data:"):
             continue
@@ -52,9 +57,14 @@ def stream_sse(iter_lines: Iterator[bytes], content_extractor) -> tuple[str, flo
             if ttft is None:
                 ttft = time.monotonic() - start
             text_parts.append(delta_text)
+            if first_token_only:
+                return "".join(text_parts), ttft, usage, False
         if done:
+            completed = True
             break
-    return "".join(text_parts), (ttft if ttft is not None else time.monotonic() - start), usage
+    if ttft is None:
+        ttft = time.monotonic() - start
+    return "".join(text_parts), ttft, usage, completed
 
 
 def openai_sse_extractor(payload: str):
@@ -96,14 +106,29 @@ def anthropic_sse_extractor(payload: str):
 
 
 class HttpClient:
-    """Thin requests wrapper used by adapters."""
+    """Thin requests wrapper; sessions are shared per timeout for conn reuse."""
+
+    _sessions: ClassVar[dict[float, requests.Session]] = {}
 
     def __init__(self, timeout_s: float = 120.0):
         self.timeout = timeout_s
-        self.session = requests.Session()
+        if timeout_s not in self._sessions:
+            self._sessions[timeout_s] = requests.Session()
+        self.session = self._sessions[timeout_s]
 
-    def post(self, url: str, headers: dict, body: dict | bytes | None,
-             stream: bool = False, timeout: Optional[float] = None) -> requests.Response:
-        return self.session.post(url, headers=headers, json=body if isinstance(body, dict) else None,
-                                 data=body if isinstance(body, (bytes, str)) else None,
-                                 stream=stream, timeout=timeout or self.timeout)
+    def post(
+        self,
+        url: str,
+        headers: dict,
+        body: dict | bytes | None,
+        stream: bool = False,
+        timeout: float | None = None,
+    ) -> requests.Response:
+        return self.session.post(
+            url,
+            headers=headers,
+            json=body if isinstance(body, dict) else None,
+            data=body if isinstance(body, (bytes, str)) else None,
+            stream=stream,
+            timeout=timeout or self.timeout,
+        )

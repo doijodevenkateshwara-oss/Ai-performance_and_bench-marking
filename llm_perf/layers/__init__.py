@@ -1,15 +1,13 @@
 """Layer dispatch — builds the right Layer for a target."""
+
 from __future__ import annotations
 
-from typing import Any, Optional
-
-from ..config import (AppEndpointTarget, AppObjectTarget, LlmApiTarget,
-                      PipelineTarget, Target)
+from ..config import AppEndpointTarget, AppObjectTarget, LlmApiTarget, PipelineTarget
 from ..datasets import Dataset
 from ..prompts import PromptPicker, load_prompts
 from .app_endpoint import AppEndpointLayer
 from .app_object import AppObjectLayer
-from .base import Layer, LayerResult
+from .base import Layer
 from .llm_api import LlmApiLayer
 from .pipeline import PipelineLayer
 
@@ -22,7 +20,7 @@ class LayerFactory:
         self._layers: dict[str, Layer] = {}
         self._datasets: dict[str, Dataset] = {}
 
-    def dataset(self, name: str) -> Optional[Dataset]:
+    def dataset(self, name: str) -> Dataset | None:
         if name in self._datasets:
             return self._datasets[name]
         cfg = self.config.datasets.get(name)
@@ -32,9 +30,13 @@ class LayerFactory:
         # deterministic shard for distributed workers
         try:
             from locust.env import get_environment
+
             runner = get_environment().runner
-            if runner and getattr(runner, "worker_index", None) is not None \
-               and getattr(runner, "worker_count", 1):
+            if (
+                runner
+                and getattr(runner, "worker_index", None) is not None
+                and getattr(runner, "worker_count", 1)
+            ):
                 ds = ds.shard(runner.worker_index, runner.worker_count)
         except Exception:
             pass
@@ -46,9 +48,10 @@ class LayerFactory:
             return self._layers[target_name]
         target = next(t for t in self.config.targets if t.name == target_name)
         prompts = load_prompts(getattr(target, "prompts", None))
-        ds = self.dataset(getattr(target, "dataset", None) or "") if getattr(target, "dataset", None) else None
-        picker = PromptPicker(prompts=prompts, dataset=ds,
-                              vars_=getattr(target, "vars", None))
+        ds = (
+            self.dataset(getattr(target, "dataset", None) or "") if getattr(target, "dataset", None) else None
+        )
+        picker = PromptPicker(prompts=prompts, dataset=ds, vars_=getattr(target, "vars", None))
         if isinstance(target, LlmApiTarget):
             layer = LlmApiLayer(target, picker)
         elif isinstance(target, PipelineTarget):
@@ -62,7 +65,7 @@ class LayerFactory:
         self._layers[target_name] = layer
         return layer
 
-    def prompt_and_row(self, layer: Layer, rng) -> tuple[str, Optional[dict]]:
+    def prompt_and_row(self, layer: Layer, rng) -> tuple[str, dict | None]:
         """Pick prompt+dataset row for layers that support datasets."""
         picker = getattr(layer, "picker", None)
         ds = getattr(picker, "dataset", None) if picker else None
@@ -70,7 +73,7 @@ class LayerFactory:
             row = ds.sample(rng)
             prompt = ""
             for key in ("prompt", "question", "input", "text"):
-                if key in row and row[key]:
+                if row.get(key):
                     prompt = str(row[key])
                     break
             if not prompt:

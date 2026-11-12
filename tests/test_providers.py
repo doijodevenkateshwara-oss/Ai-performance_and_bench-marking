@@ -29,11 +29,13 @@ def test_openai_stream_adds_include_usage():
 
 def test_openai_parse_response():
     a = OpenAIAdapter()
-    body = json.dumps({
-        "choices": [{"message": {"content": "hi there"}, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
-        "model": "gpt-4o-mini",
-    }).encode()
+    body = json.dumps(
+        {
+            "choices": [{"message": {"content": "hi there"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            "model": "gpt-4o-mini",
+        }
+    ).encode()
     r = a.parse_response(200, {}, body)
     assert r.text == "hi there"
     assert r.prompt_tokens == 3 and r.completion_tokens == 2
@@ -46,7 +48,7 @@ def test_openai_parse_stream():
         'data: {"choices":[{"delta":{"content":"Hello"}}]}',
         'data: {"choices":[{"delta":{"content":" world"}}]}',
         'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}',
-        'data: [DONE]',
+        "data: [DONE]",
     ]
     r = a.parse_response(200, {}, b"", stream_iter=iter(chunks))
     assert r.text == "Hello world"
@@ -56,9 +58,12 @@ def test_openai_parse_stream():
 
 def test_anthropic_build_request():
     a = AnthropicAdapter()
-    spec = RequestSpec(provider="anthropic", prompt="hi",
-                       params={"model": "claude-sonnet-4-5", "max_tokens": 100},
-                       api_key="sk-test")
+    spec = RequestSpec(
+        provider="anthropic",
+        prompt="hi",
+        params={"model": "claude-sonnet-4-5", "max_tokens": 100},
+        api_key="sk-test",
+    )
     url, headers, body = a.build_request(spec)
     assert url.endswith("/v1/messages")
     assert headers["x-api-key"] == "sk-test"
@@ -69,12 +74,14 @@ def test_anthropic_build_request():
 
 def test_anthropic_parse_response():
     a = AnthropicAdapter()
-    body = json.dumps({
-        "content": [{"type": "text", "text": "anthropic says hi"}],
-        "stop_reason": "end_turn",
-        "usage": {"input_tokens": 4, "output_tokens": 6},
-        "model": "claude-sonnet-4-5",
-    }).encode()
+    body = json.dumps(
+        {
+            "content": [{"type": "text", "text": "anthropic says hi"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 4, "output_tokens": 6},
+            "model": "claude-sonnet-4-5",
+        }
+    ).encode()
     r = a.parse_response(200, {}, body)
     assert r.text == "anthropic says hi"
     assert r.prompt_tokens == 4 and r.completion_tokens == 6
@@ -83,9 +90,9 @@ def test_anthropic_parse_response():
 def test_anthropic_parse_stream():
     a = AnthropicAdapter()
     lines = [
-        'event: message_start',
+        "event: message_start",
         'data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}',
-        'event: content_block_delta',
+        "event: content_block_delta",
         'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}',
         'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"!"}}',
         'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}',
@@ -99,10 +106,14 @@ def test_anthropic_parse_stream():
 
 def test_azure_url_and_headers():
     a = AzureAdapter()
-    spec = RequestSpec(provider="azure", prompt="hi",
-                       params={"model": "my-deployment", "max_tokens": 10},
-                       api_key="azkey", base_url="https://res.openai.azure.com",
-                       extra={"azure": {"api_version": "2024-10-21"}})
+    spec = RequestSpec(
+        provider="azure",
+        prompt="hi",
+        params={"model": "my-deployment", "max_tokens": 10},
+        api_key="azkey",
+        base_url="https://res.openai.azure.com",
+        extra={"azure": {"api_version": "2024-10-21"}},
+    )
     url, headers, body = a.build_request(spec)
     assert "api-version=2024-10-21" in url
     assert headers["api-key"] == "azkey"

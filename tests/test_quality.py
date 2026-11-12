@@ -1,13 +1,10 @@
-import json
-
-from llm_perf.config import HeuristicChecks, JudgeConfig, QualityConfig
+from llm_perf.config import HeuristicChecks, QualityConfig
 from llm_perf.quality import evaluate_quality, run_heuristics
 from llm_perf.quality.judge import _parse_score
 
 
 def test_heuristics_all_pass():
-    cfg = HeuristicChecks(non_empty=True, min_chars=5, max_chars=100,
-                          required_patterns=["hello"])
+    cfg = HeuristicChecks(non_empty=True, min_chars=5, max_chars=100, required_patterns=["hello"])
     r = run_heuristics("hello world", cfg)
     assert r.score == 1.0
     assert r.all_passed
@@ -44,7 +41,7 @@ def test_judge_score_parse_bare_number():
 
 
 def test_judge_score_unparseable():
-    score, reason = _parse_score("I refuse to answer", 1, 5)
+    score, _reason = _parse_score("I refuse to answer", 1, 5)
     assert score is None
 
 

@@ -1,4 +1,5 @@
 """SLO threshold evaluation, verdicts, and webhook alerts."""
+
 from __future__ import annotations
 
 import json
@@ -6,19 +7,18 @@ import os
 import time
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Optional
 
-from .config import ThresholdsConfig, ThresholdRule
+from .config import ThresholdRule, ThresholdsConfig
 
 
 @dataclass
 class RuleResult:
     name: str
     metric: str
-    comparator: str          # <= or >=
+    comparator: str  # <= or >=
     threshold: float
-    actual: Optional[float]
-    passed: Optional[bool]   # None = skipped (no data)
+    actual: float | None
+    passed: bool | None  # None = skipped (no data)
     scope: str = "scenario"  # global | scenario
 
 
@@ -63,10 +63,16 @@ def _entry_for(stats, scenario: str, method: str):
         return None
 
 
-def evaluate(stats, thresholds: Optional[ThresholdsConfig], scenario_names: list[str],
-             duration_s: float, total_requests: int, total_failures: int,
-             cost_by_scenario: Optional[dict] = None,
-             stage_stats: Optional[dict] = None) -> ThresholdReport:
+def evaluate(
+    stats,
+    thresholds: ThresholdsConfig | None,
+    scenario_names: list[str],
+    duration_s: float,
+    total_requests: int,
+    total_failures: int,
+    cost_by_scenario: dict | None = None,
+    stage_stats: dict | None = None,
+) -> ThresholdReport:
     """Evaluate all rules against final Locust stats."""
     rep = ThresholdReport()
     if thresholds is None:
@@ -74,7 +80,7 @@ def evaluate(stats, thresholds: Optional[ThresholdsConfig], scenario_names: list
     cost_by_scenario = cost_by_scenario or {}
     stage_stats = stage_stats or {}
 
-    def check_rule(rule: ThresholdRule, scope: str, scenario: Optional[str]):
+    def check_rule(rule: ThresholdRule, scope: str, scenario: str | None):
         label = f"{scope}:{scenario}" if scenario else scope
         # latency percentiles — use the scenario's request entry (method "" aggregate)
         entry = _aggregate_entry(stats, scenario) if scenario else _global_entry(stats)
@@ -83,45 +89,75 @@ def evaluate(stats, thresholds: Optional[ThresholdsConfig], scenario_names: list
             if limit is None:
                 continue
             actual = _percentile(entry, pct) if entry else None
-            rep.results.append(RuleResult(
-                name=f"{label}.{field_name}", metric=f"p{int(pct)}_latency_ms",
-                comparator="<=", threshold=limit, actual=actual,
-                passed=(actual <= limit) if actual is not None else None, scope=scope))
+            rep.results.append(
+                RuleResult(
+                    name=f"{label}.{field_name}",
+                    metric=f"p{int(pct)}_latency_ms",
+                    comparator="<=",
+                    threshold=limit,
+                    actual=actual,
+                    passed=(actual <= limit) if actual is not None else None,
+                    scope=scope,
+                )
+            )
         # ttft p95
         if rule.ttft_p95_ms is not None:
             e = _entry_for(stats, scenario or "", "TTFT") if scenario else None
             actual = _percentile(e, 95) if e else None
-            rep.results.append(RuleResult(
-                name=f"{label}.ttft_p95_ms", metric="ttft_p95_ms",
-                comparator="<=", threshold=rule.ttft_p95_ms, actual=actual,
-                passed=(actual <= rule.ttft_p95_ms) if actual is not None else None,
-                scope=scope))
+            rep.results.append(
+                RuleResult(
+                    name=f"{label}.ttft_p95_ms",
+                    metric="ttft_p95_ms",
+                    comparator="<=",
+                    threshold=rule.ttft_p95_ms,
+                    actual=actual,
+                    passed=(actual <= rule.ttft_p95_ms) if actual is not None else None,
+                    scope=scope,
+                )
+            )
         # gauges
         for field_name, metric, comp in _GAUGE_RULES:
             limit = getattr(rule, field_name)
             if limit is None:
                 continue
-            actual = _gauge_value(metric, stats, scenario, duration_s,
-                                  total_requests, total_failures, cost_by_scenario,
-                                  stage_stats)
-            if actual is None:
-                passed = None
-            else:
-                passed = (actual <= limit) if comp == "<=" else (actual >= limit)
-            rep.results.append(RuleResult(
-                name=f"{label}.{field_name}", metric=metric, comparator=comp,
-                threshold=limit, actual=actual, passed=passed, scope=scope))
+            actual = _gauge_value(
+                metric,
+                stats,
+                scenario,
+                duration_s,
+                total_requests,
+                total_failures,
+                cost_by_scenario,
+                stage_stats,
+            )
+            passed = None if actual is None else actual <= limit if comp == "<=" else actual >= limit
+            rep.results.append(
+                RuleResult(
+                    name=f"{label}.{field_name}",
+                    metric=metric,
+                    comparator=comp,
+                    threshold=limit,
+                    actual=actual,
+                    passed=passed,
+                    scope=scope,
+                )
+            )
         # per-stage rules
         for stage_name, stage_rule in (rule.stages or {}).items():
             for m_name, limit in stage_rule.items():
                 # stage_rule like {"p95_ms": 300}
                 actual = _stage_percentile(stage_stats, scenario, stage_name, m_name)
-                rep.results.append(RuleResult(
-                    name=f"{label}.stage.{stage_name}.{m_name}",
-                    metric=f"stage.{stage_name}.{m_name}", comparator="<=",
-                    threshold=limit, actual=actual,
-                    passed=(actual <= limit) if actual is not None else None,
-                    scope=scope))
+                rep.results.append(
+                    RuleResult(
+                        name=f"{label}.stage.{stage_name}.{m_name}",
+                        metric=f"stage.{stage_name}.{m_name}",
+                        comparator="<=",
+                        threshold=limit,
+                        actual=actual,
+                        passed=(actual <= limit) if actual is not None else None,
+                        scope=scope,
+                    )
+                )
 
     if thresholds.global_:
         check_rule(thresholds.global_, "global", None)
@@ -153,7 +189,7 @@ def _global_entry(stats):
         return None
 
 
-def _percentile(entry, pct: float) -> Optional[float]:
+def _percentile(entry, pct: float) -> float | None:
     if entry is None:
         return None
     try:
@@ -166,8 +202,9 @@ def _percentile(entry, pct: float) -> Optional[float]:
             return None
 
 
-def _gauge_value(metric, stats, scenario, duration_s, total_requests,
-                 total_failures, cost_by_scenario, stage_stats):
+def _gauge_value(
+    metric, stats, scenario, duration_s, total_requests, total_failures, cost_by_scenario, stage_stats
+):
     try:
         if metric == "error_rate":
             if total_requests <= 0:
@@ -225,8 +262,8 @@ def _stage_percentile(stage_stats, scenario, stage_name, metric_name):
 # Alerts
 # ---------------------------------------------------------------------------
 
-def send_alerts(alerts: list[dict], report: ThresholdReport, event: str,
-                summary: dict) -> list[str]:
+
+def send_alerts(alerts: list[dict], report: ThresholdReport, event: str, summary: dict) -> list[str]:
     """POST to configured webhooks. Returns list of notified alert types."""
     notified = []
     payload = _alert_payload(report, event, summary)
@@ -245,7 +282,7 @@ def send_alerts(alerts: list[dict], report: ThresholdReport, event: str,
     return notified
 
 
-def _resolve_url(alert: dict) -> Optional[str]:
+def _resolve_url(alert: dict) -> str | None:
     env_name = alert.get("url_env")
     if env_name:
         return os.environ.get(env_name)
@@ -253,12 +290,17 @@ def _resolve_url(alert: dict) -> Optional[str]:
 
 
 def _alert_payload(report: ThresholdReport, event: str, summary: dict) -> dict:
-    failed = [{"rule": r.name, "metric": r.metric, "threshold": r.threshold,
-               "actual": r.actual} for r in report.failed]
+    failed = [
+        {"rule": r.name, "metric": r.metric, "threshold": r.threshold, "actual": r.actual}
+        for r in report.failed
+    ]
     return {
         "event": event,
-        "text": f"llm-perf {event}: {len(failed)} threshold(s) failed" if failed
-                else f"llm-perf {event}: all thresholds passed",
+        "text": (
+            f"llm-perf {event}: {len(failed)} threshold(s) failed"
+            if failed
+            else f"llm-perf {event}: all thresholds passed"
+        ),
         "failed_rules": failed,
         "summary": summary,
         "ts": time.time(),
@@ -268,8 +310,10 @@ def _alert_payload(report: ThresholdReport, event: str, summary: dict) -> dict:
 def _post_webhook(atype: str, url: str, payload: dict, alert: dict):
     if atype == "slack":
         failed = payload["failed_rules"]
-        lines = "\n".join(f"• `{r['rule']}`: {r['actual']} vs limit {r['threshold']}"
-                          for r in failed[:10]) or "all thresholds passed"
+        lines = (
+            "\n".join(f"• `{r['rule']}`: {r['actual']} vs limit {r['threshold']}" for r in failed[:10])
+            or "all thresholds passed"
+        )
         body = {"text": f":bar_chart: *llm-perf {payload['event']}*\n{lines}"}
     elif atype == "pagerduty":
         routing_key = alert.get("routing_key_env") and os.environ.get(alert["routing_key_env"])
@@ -286,6 +330,5 @@ def _post_webhook(atype: str, url: str, payload: dict, alert: dict):
     else:
         body = payload
     data = json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data,
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     urllib.request.urlopen(req, timeout=10).read()

@@ -1,11 +1,11 @@
 """RAG-specific quality: context recall against dataset expected_context."""
+
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 
-def context_recall(retrieved_texts: list[str], expected_context: Optional[str]) -> Optional[float]:
+def context_recall(retrieved_texts: list[str], expected_context: str | None) -> float | None:
     """Fraction of expected_context sentences/keywords found in retrieved context.
 
     Simple token-overlap recall: splits expected context into sentences, checks

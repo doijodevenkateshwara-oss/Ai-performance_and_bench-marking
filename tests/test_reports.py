@@ -1,13 +1,13 @@
 """Report aggregation tests with fake Locust stats."""
-import pytest
 
 from llm_perf.config import PerfConfig
 from llm_perf.reporters import aggregate, write_reports
 
 
 class FakeEntry:
-    def __init__(self, name, method, requests=50, failures=2, avg=1200.0,
-                 p50=900, p90=2000, p95=2500, p99=4000):
+    def __init__(
+        self, name, method, requests=50, failures=2, avg=1200.0, p50=900, p90=2000, p95=2500, p99=4000
+    ):
         self.name = name
         self.method = method
         self.num_requests = requests
@@ -24,21 +24,31 @@ class FakeEntry:
 class FakeStats:
     def __init__(self, entries):
         self.entries = {f"{e.name}:{e.method}": e for e in entries}
-        self.total = type("T", (), {
-            "num_requests": sum(e.num_requests for e in entries),
-            "num_failures": sum(e.num_failures for e in entries)})()
+        self.total = type(
+            "T",
+            (),
+            {
+                "num_requests": sum(e.num_requests for e in entries),
+                "num_failures": sum(e.num_failures for e in entries),
+            },
+        )()
 
 
 def test_aggregate_basic():
-    stats = FakeStats([
-        FakeEntry("chat_load", "", requests=50, failures=2),
-        FakeEntry("chat_load", "TTFT", requests=50, avg=400.0, p95=800.0),
-        FakeEntry("chat_load", "TOKENS", requests=50, avg=300.0),
-        FakeEntry("chat_load", "QUALITY_SCORE", requests=10, avg=750.0),
-    ])
-    cfg = PerfConfig.model_validate({"scenarios": [{"name": "s", "target": "t"}],
-                                     "targets": [{"name": "t", "provider": "openai",
-                                                  "prompts": ["hi"]}]})
+    stats = FakeStats(
+        [
+            FakeEntry("chat_load", "", requests=50, failures=2),
+            FakeEntry("chat_load", "TTFT", requests=50, avg=400.0, p95=800.0),
+            FakeEntry("chat_load", "TOKENS", requests=50, avg=300.0),
+            FakeEntry("chat_load", "QUALITY_SCORE", requests=10, avg=750.0),
+        ]
+    )
+    cfg = PerfConfig.model_validate(
+        {
+            "scenarios": [{"name": "s", "target": "t"}],
+            "targets": [{"name": "t", "provider": "openai", "prompts": ["hi"]}],
+        }
+    )
     report = aggregate(stats, cfg, duration_s=25.0)
     sc = report["scenarios"][0]
     assert sc["scenario"] == "chat_load"
@@ -53,11 +63,13 @@ def test_aggregate_basic():
 
 def test_write_reports_csv_json(tmp_path):
     stats = FakeStats([FakeEntry("s1", "", requests=10)])
-    cfg = PerfConfig.model_validate({
-        "targets": [{"name": "t", "provider": "openai", "prompts": ["hi"]}],
-        "scenarios": [{"name": "s1", "target": "t"}],
-        "report": {"formats": ["csv", "json"], "output_dir": str(tmp_path)},
-    })
+    cfg = PerfConfig.model_validate(
+        {
+            "targets": [{"name": "t", "provider": "openai", "prompts": ["hi"]}],
+            "scenarios": [{"name": "s1", "target": "t"}],
+            "report": {"formats": ["csv", "json"], "output_dir": str(tmp_path)},
+        }
+    )
     report = aggregate(stats, cfg, 10.0)
     paths = write_reports(report, cfg)
     assert len(paths) == 2
@@ -67,11 +79,13 @@ def test_write_reports_csv_json(tmp_path):
 
 def test_write_reports_html(tmp_path):
     stats = FakeStats([FakeEntry("s1", "", requests=10)])
-    cfg = PerfConfig.model_validate({
-        "targets": [{"name": "t", "provider": "openai", "prompts": ["hi"]}],
-        "scenarios": [{"name": "s1", "target": "t"}],
-        "report": {"formats": ["html"], "output_dir": str(tmp_path)},
-    })
+    cfg = PerfConfig.model_validate(
+        {
+            "targets": [{"name": "t", "provider": "openai", "prompts": ["hi"]}],
+            "scenarios": [{"name": "s1", "target": "t"}],
+            "report": {"formats": ["html"], "output_dir": str(tmp_path)},
+        }
+    )
     report = aggregate(stats, cfg, 10.0)
     paths = write_reports(report, cfg)
     assert paths[0].suffix == ".html"
