@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>llm-perf report — {{ report.generated_at }}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, monospace; margin: 2rem; color:#1c1c1e; }
+  h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: right; }
+  th { background: #f5f5f7; }
+  td:first-child, th:first-child { text-align: left; }
+  .pass { color: #1a7f37; font-weight: 600; } .fail { color: #cf222e; font-weight: 600; }
+  .meta { color:#666; font-size:0.85rem; }
+  .verdict { padding: 0.6rem 0.9rem; border-radius: 6px; display:inline-block; margin-bottom:1rem; }
+  .verdict.ok { background:#dafbe1; color:#1a7f37; }
+  .verdict.bad { background:#ffebe9; color:#cf222e; }
+</style>
+</head>
+<body>
+<h1>llm-perf report</h1>
+<p class="meta">Generated {{ report.generated_at }} · duration {{ "%.1f"|format(report.duration_s) }}s ·
+   totals: {{ report.totals.requests }} requests, {{ report.totals.failures }} failures
+   ({{ "%.2f"|format(report.totals.error_rate*100) }}%)</p>
+
+{% if report.thresholds.all_passed is not none %}
+<div class="verdict {{ 'ok' if report.thresholds.all_passed else 'bad' }}">
+  {% if report.thresholds.all_passed %}All thresholds passed{% else %}Threshold failures: {{ report.thresholds.failed | join(', ') }}{% endif %}
+</div>
+{% endif %}
+
+<h2>Per-scenario performance</h2>
+<table>
+<tr><th>scenario</th><th>requests</th><th>fail%</th><th>avg ms</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>rps</th><th>ttft p95</th><th>tokens</th><th>tok/s</th><th>cost</th></tr>
+{% for s in report.scenarios %}
+<tr>
+  <td>{{ s.scenario }}</td><td>{{ s.requests }}</td>
+  <td>{{ "%.2f"|format((s.error_rate or 0)*100) }}</td>
+  <td>{{ "%.0f"|format(s.avg_ms or 0) }}</td>
+  <td>{{ "%.0f"|format(s.p50_ms or 0) }}</td><td>{{ "%.0f"|format(s.p90_ms or 0) }}</td>
+  <td>{{ "%.0f"|format(s.p95_ms or 0) }}</td><td>{{ "%.0f"|format(s.p99_ms or 0) }}</td>
+  <td>{{ "%.2f"|format(s.rps or 0) }}</td>
+  <td>{{ "%.0f"|format(s.ttft_p95_ms or 0) }}</td>
+  <td>{{ s.total_tokens or 0 }}</td>
+  <td>{{ "%.1f"|format(s.tokens_per_sec_avg or 0) }}</td>
+  <td>{{ "$%.4f"|format(s.cost_usd or 0) }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<h2>Quality</h2>
+<table>
+<tr><th>scenario</th><th>quality score</th><th>context recall</th></tr>
+{% for s in report.scenarios %}
+<tr><td>{{ s.scenario }}</td>
+  <td>{{ "%.3f"|format(s.quality_score_avg) if s.quality_score_avg is defined and s.quality_score_avg is not none else "—" }}</td>
+  <td>{{ "%.3f"|format(s.context_recall_avg) if s.context_recall_avg is defined and s.context_recall_avg is not none else "—" }}</td></tr>
+{% endfor %}
+</table>
+
+{% if report.thresholds.rules %}
+<h2>Threshold verdicts</h2>
+<table>
+<tr><th>rule</th><th>metric</th><th>comparator</th><th>threshold</th><th>actual</th><th>result</th></tr>
+{% for r in report.thresholds.rules %}
+<tr>
+  <td>{{ r.rule }}</td><td>{{ r.metric }}</td><td>{{ r.comparator }}</td>
+  <td>{{ r.threshold }}</td><td>{{ "%.2f"|format(r.actual) if r.actual is not none else "n/a" }}</td>
+  <td class="{{ 'pass' if r.passed else ('fail' if r.passed is sameas false else '') }}">
+    {{ 'PASS' if r.passed else ('FAIL' if r.passed is sameas false else 'SKIP') }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+</body>
+</html>

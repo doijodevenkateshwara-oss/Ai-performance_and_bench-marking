@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+results/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+datasets/local_*.jsonl
+chroma_db/
+protos/_generated/

@@ -1,0 +1,53 @@
+# Example: AWS Bedrock (Converse API)
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-bedrock
+
+targets:
+  - name: bedrock_chat
+    layer: llm_api
+    provider: bedrock
+    aws:
+      region: us-east-1
+      auth: env            # env | profile | iam_role
+      # profile: my-profile
+    stream: false
+    params:
+      model: us.anthropic.claude-sonnet-4-5-20250929-v1:0   # inference profile/model id
+      max_tokens: 512
+      temperature: 0.5
+    prompts:
+      - "Explain {topic} briefly."
+      - "Write a one-line summary of {topic}."
+    vars:
+      topic: ["kubernetes", "finops", "observability", "llmops"]
+    timeout_s: 120
+
+scenarios:
+  - name: bedrock_load
+    target: bedrock_chat
+    weight: 100
+    think_time: [1.0, 3.0]
+    quality:
+      sample_rate: 0.1
+      heuristics:
+        non_empty: true
+        min_chars: 5
+
+load:
+  users: 5
+  spawn_rate: 1
+  duration: 3m
+
+thresholds:
+  scenarios:
+    bedrock_load:
+      p95_ms: 60000
+      max_error_rate: 0.05
+  on_fail: warn
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/bedrock

@@ -1,0 +1,89 @@
+"""Prompt pools and {var} templating."""
+from __future__ import annotations
+
+import random
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
+
+
+def load_prompts(spec: Any) -> list[str]:
+    """Accept: list[str], path to yaml/csv/txt file, or inline string."""
+    if spec is None:
+        return []
+    if isinstance(spec, str):
+        p = Path(spec)
+        if p.exists():
+            return _load_file(p)
+        return [spec]
+    if isinstance(spec, list):
+        return [str(x) for x in spec]
+    return []
+
+
+def _load_file(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix in (".yaml", ".yml"):
+        data = yaml.safe_load(text) or []
+        if isinstance(data, dict):
+            for k in ("prompts", "items", "rows"):
+                if k in data and isinstance(data[k], list):
+                    return [str(x.get("prompt", x) if isinstance(x, dict) else x) for x in data[k]]
+            return [str(v) for v in data.values()]
+        return [str(x.get("prompt", x) if isinstance(x, dict) else x) for x in data]
+    if path.suffix == ".csv":
+        import csv, io
+        return [r.get("prompt", "") for r in csv.DictReader(io.StringIO(text)) if r.get("prompt")]
+    # txt: one prompt per line (blank-line separated blocks kept whole)
+    blocks, cur = [], []
+    for line in text.splitlines():
+        if line.strip():
+            cur.append(line)
+        elif cur:
+            blocks.append("\n".join(cur))
+            cur = []
+    if cur:
+        blocks.append("\n".join(cur))
+    return blocks
+
+
+class PromptPicker:
+    """Picks prompts from inline list or dataset rows, renders {var} placeholders."""
+
+    def __init__(self, prompts: Optional[list[str]] = None, dataset: Optional[Any] = None,
+                 vars_: Optional[dict] = None):
+        self.prompts = prompts or []
+        self.dataset = dataset
+        self.vars = vars_ or {}
+
+    def _render(self, text: str, row: Optional[dict], rng: random.Random) -> str:
+        import re
+        def repl(m):
+            key = m.group(1).strip().strip("{}")
+            if row and key in row:
+                return str(row[key])
+            if key in self.vars:
+                v = self.vars[key]
+                return str(rng.choice(v) if isinstance(v, list) and v else v)
+            return m.group(0)
+        return re.sub(r"\{\{?\s*([A-Za-z_][\w.]*)\s*\}?\}", repl, text)
+
+    def pick(self, rng: random.Random, row: Optional[dict] = None) -> str:
+        text = ""
+        if row is not None:
+            for key in ("prompt", "question", "input", "text"):
+                if key in row and row[key]:
+                    text = str(row[key])
+                    break
+        if not text and self.dataset is not None:
+            sampled = self.dataset.sample(rng)
+            for key in ("prompt", "question", "input", "text"):
+                if key in sampled and sampled[key]:
+                    text = str(sampled[key])
+                    break
+            if not text and sampled:
+                text = str(next(iter(sampled.values())))
+        if not text and self.prompts:
+            text = rng.choice(self.prompts)
+        return self._render(text, row, rng) if text else ""

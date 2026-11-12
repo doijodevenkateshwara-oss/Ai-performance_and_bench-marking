@@ -1,0 +1,54 @@
+# Example: Anthropic Messages API
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-anthropic
+
+targets:
+  - name: anthropic_chat
+    layer: llm_api
+    provider: anthropic
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+    stream: true
+    params:
+      model: claude-sonnet-4-5
+      max_tokens: 512
+      temperature: 0.5
+    prompts:
+      - "Explain {topic} in one paragraph."
+      - "Write a haiku about {topic}."
+      - "Summarize the key points of {topic} for an executive."
+    vars:
+      topic: ["kubernetes", "finops", "observability", "llmops"]
+    timeout_s: 120
+
+scenarios:
+  - name: anthropic_load
+    target: anthropic_chat
+    weight: 100
+    think_time: [1.0, 3.0]
+    quality:
+      sample_rate: 0.1
+      heuristics:
+        non_empty: true
+        min_chars: 10
+        forbidden_patterns: ["I cannot", "as an AI"]
+
+load:
+  users: 5
+  spawn_rate: 1
+  duration: 3m
+
+thresholds:
+  scenarios:
+    anthropic_load:
+      p95_ms: 45000
+      ttft_p95_ms: 8000
+      min_quality_score: 0.5
+  on_fail: warn
+
+report:
+  formats: [json, html]
+  output_dir: results/anthropic

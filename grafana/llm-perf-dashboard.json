@@ -1,0 +1,111 @@
+{
+  "title": "llm-perf — LLM Performance & Quality",
+  "uid": "llm-perf-main",
+  "tags": ["llm-perf"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-15m", "to": "now"},
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Request rate by scenario",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "sum by (scenario) (rate(llm_perf_request_total[1m]))",
+        "legendFormat": "{{scenario}}"
+      }]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Error rate by scenario",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "sum by (scenario) (rate(llm_perf_request_total{result=\"error\"}[1m])) / sum by (scenario) (rate(llm_perf_request_total[1m]))",
+        "legendFormat": "{{scenario}}"
+      }]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "E2E latency p50/p95/p99",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le, scenario) (rate(llm_perf_request_duration_bucket[1m])))", "legendFormat": "p50 {{scenario}}"},
+        {"expr": "histogram_quantile(0.95, sum by (le, scenario) (rate(llm_perf_request_duration_bucket[1m])))", "legendFormat": "p95 {{scenario}}"},
+        {"expr": "histogram_quantile(0.99, sum by (le, scenario) (rate(llm_perf_request_duration_bucket[1m])))", "legendFormat": "p99 {{scenario}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Time to first token p95",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le, scenario) (rate(llm_perf_ttft_bucket[1m])))",
+        "legendFormat": "{{scenario}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Tokens per second",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "sum by (scenario) (rate(llm_perf_tokens_total{kind=\"output\"}[1m]))",
+        "legendFormat": "{{scenario}} output tok/s"
+      }, {
+        "expr": "sum by (scenario) (rate(llm_perf_tokens_total{kind=\"input\"}[1m]))",
+        "legendFormat": "{{scenario}} input tok/s"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Quality score (avg)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "sum by (scenario) (rate(llm_perf_quality_score_sum[1m])) / sum by (scenario) (rate(llm_perf_quality_score_count[1m]))",
+        "legendFormat": "{{scenario}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Active users",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(llm_perf_users)", "legendFormat": "users"}]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Estimated cost (USD)",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "sum by (scenario) (increase(llm_perf_cost_USD_total[1m]))",
+        "legendFormat": "{{scenario}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Stage latency p95",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le, scenario, stage) (rate(llm_perf_stage_duration_bucket[1m])))",
+        "legendFormat": "{{scenario}}/{{stage}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 10, "type": "stat", "title": "Threshold status",
+      "gridPos": {"h": 4, "w": 24, "x": 0, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{
+        "expr": "sum by (rule) (llm_perf_threshold_pass)",
+        "legendFormat": "{{rule}}",
+        "instant": true
+      }],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "FAIL", "color": "red"}, "1": {"text": "PASS", "color": "green"}}}]}}
+    }
+  ]
+}

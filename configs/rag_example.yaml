@@ -1,0 +1,75 @@
+# Example: declarative RAG pipeline (Phase 2 engine — retrieve + generate)
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-rag
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+      context: expected_context
+    sample: { strategy: random, count: 50, seed: 11 }
+
+targets:
+  - name: rag_pipeline
+    layer: pipeline
+    dataset: qa_pairs
+    pipeline:
+      - stage: retrieve
+        vector_store:
+          type: json                  # local doc store; alternatives: http, chroma
+          path: ../datasets/docs.jsonl
+        top_k: 3
+      - stage: rerank
+        method: llm                   # llm | cross_encoder
+        llm: { provider: openai, model: gpt-4o-mini, api_key_env: OPENAI_API_KEY }
+      - stage: generate
+        template: ../prompts/rag_answer.j2
+        llm:
+          provider: openai
+          model: gpt-4o-mini
+          api_key_env: OPENAI_API_KEY
+          params: { max_tokens: 512, temperature: 0.2 }
+
+scenarios:
+  - name: rag_load
+    target: rag_pipeline
+    weight: 100
+    think_time: [1.0, 3.0]
+    quality:
+      sample_rate: 0.3
+      heuristics:
+        non_empty: true
+        min_chars: 10
+        forbidden_patterns: ["I don't have enough information"]
+      rag: {}
+      judge:
+        provider: openai
+        model: gpt-4o
+        rubric: "Score 1-5 on faithfulness to the context and correctness of the answer"
+        scale: [1, 5]
+
+load:
+  users: 5
+  spawn_rate: 1
+  duration: 5m
+
+thresholds:
+  scenarios:
+    rag_load:
+      p95_ms: 60000
+      min_quality_score: 0.6
+      stages:
+        retrieve: { p95_ms: 2000 }
+        generate: { p95_ms: 40000 }
+  on_fail: fail
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/rag
+  pricing: { input_per_1k: 0.00015, output_per_1k: 0.0006 }

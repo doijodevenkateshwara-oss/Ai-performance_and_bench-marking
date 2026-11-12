@@ -1,0 +1,52 @@
+# Example: Azure OpenAI
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-azure
+
+targets:
+  - name: azure_chat
+    layer: llm_api
+    provider: azure
+    base_url: https://<your-resource>.openai.azure.com
+    api_key_env: AZURE_OPENAI_API_KEY
+    azure:
+      api_version: "2024-10-21"
+    stream: false
+    params:
+      model: gpt-4o-mini-deployment   # deployment name
+      max_tokens: 256
+    prompts:
+      - "What is {topic}?"
+      - "Give me 3 bullet points about {topic}."
+    vars:
+      topic: ["kubernetes", "finops", "observability", "llmops"]
+    timeout_s: 120
+
+scenarios:
+  - name: azure_load
+    target: azure_chat
+    weight: 100
+    think_time: [0.5, 2.0]
+    quality:
+      sample_rate: 0.1
+      heuristics:
+        non_empty: true
+        min_chars: 5
+
+load:
+  users: 10
+  spawn_rate: 2
+  duration: 5m
+
+thresholds:
+  scenarios:
+    azure_load:
+      p95_ms: 30000
+      max_error_rate: 0.05
+  on_fail: fail
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/azure

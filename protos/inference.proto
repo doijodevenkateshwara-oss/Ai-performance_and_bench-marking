@@ -1,0 +1,75 @@
+// Minimal Triton Inference Protocol (gRPC) — subset for llm-perf testing.
+// Covers ModelInfer / ModelStreamInfer / ModelConfig. For the full protocol
+// see https://github.com/triton-inference-server/server/blob/main/docs/protocol/README.md
+syntax = "proto3";
+
+package inference;
+
+option java_package = "inference";
+option java_outer_classname = "GRPCInference";
+
+// Tensor/memory layout types
+message ModelInferRequest {
+  string model_name = 1;
+  string model_version = 2;
+  string id = 3;
+  InferInputType parameters = 11 [json_name = "parameters"];
+  InferRequestedOutputType requested_outputs = 12;
+  InferTensorContents inputs = 13;
+  map<string, InferParameter> parameters_map = 14;
+}
+
+enum InferInputType { DTYPE_UNDEFINED = 0; BOOL = 1; UINT8 = 2; UINT16 = 3; UINT32 = 4; UINT64 = 5; INT8 = 6; INT16 = 7; INT32 = 8; INT64 = 9; FP16 = 10; FP32 = 11; FP64 = 12; STRING = 13; BF16 = 14; }
+message InferParameter { oneof parameter_choice { bool bool_param = 1; int64 int64_param = 2; string string_param = 3; } }
+enum InferRequestedOutputType { KIND_UNDEFINED = 0; KIND_CLASS = 1; KIND_CONFIDENCE = 2; KIND_PICK = 3; }
+message InferTensorContents { repeated InferTypedTensorData contents = 1; }
+message InferTypedTensorData {
+  bytes bytes_contents = 1;
+  bool bool_contents = 2;
+  int64 int64_contents = 3;
+  string string_contents = 4;
+}
+
+message ModelInferResponse {
+  InferOutputTensorType outputs = 1;
+  string model_name = 2;
+  string model_version = 3;
+  string id = 4;
+  uint64 parameters = 5;
+}
+message InferOutputTensorType { map<string, InferParameter> parameters = 1; }
+
+message ModelStreamInferRequest {
+  string model_name = 1;
+  string model_version = 2;
+  string id = 3;
+  InferInputType parameters = 11;
+  InferRequestedOutputType requested_outputs = 12;
+  InferTensorContents inputs = 13;
+  map<string, InferParameter> parameters_map = 14;
+  bool streaming_input = 15;
+}
+
+message ModelStreamInferResponse {
+  InferOutputTensorType outputs = 1;
+  string model_name = 2;
+  string model_version = 3;
+  string id = 4;
+  uint64 parameters = 5;
+}
+
+message ModelConfigRequest { string name = 1; string version = 2; }
+message ModelConfigResponse { string name = 1; string version = 2; string platform = 3; uint64 inputs = 4; uint64 outputs = 5; }
+
+service GRPCInferenceService {
+  rpc ServerLive(LivenessRequest) returns (LivenessResponse) {}
+  rpc ServerReady(ReadinessRequest) returns (ReadinessResponse) {}
+  rpc ModelConfig(ModelConfigRequest) returns (ModelConfigResponse) {}
+  rpc ModelInfer(ModelInferRequest) returns (ModelInferResponse) {}
+  rpc ModelStreamInfer(stream ModelStreamInferRequest) returns (stream ModelStreamInferResponse) {}
+}
+
+message LivenessRequest {}
+message LivenessResponse {}
+message ReadinessRequest {}
+message ReadinessResponse {}

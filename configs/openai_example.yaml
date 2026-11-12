@@ -1,0 +1,83 @@
+# Example: OpenAI chat completions with streaming + quality checks
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-openai
+    sample_ratio: 1.0
+    genai_semconv: true
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+      context: expected_context
+    sample:
+      strategy: random
+      count: 50
+      seed: 7
+    vars:
+      topic: ["kubernetes", "finops", "observability", "llmops"]
+
+targets:
+  - name: openai_chat
+    layer: llm_api
+    provider: openai
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    stream: true
+    params:
+      model: gpt-4o-mini
+      max_tokens: 256
+      temperature: 0.7
+    dataset: qa_pairs
+    timeout_s: 120
+
+scenarios:
+  - name: chat_load
+    target: openai_chat
+    weight: 100
+    think_time: [0.5, 2.0]
+    quality:
+      sample_rate: 0.2
+      heuristics:
+        non_empty: true
+        min_chars: 10
+        max_chars: 8000
+        forbidden_patterns: ["I cannot assist", "as an AI language model"]
+      judge:
+        provider: openai
+        model: gpt-4o
+        rubric: "Score 1-5 on correctness, helpfulness, and conciseness"
+        scale: [1, 5]
+
+load:
+  users: 10
+  spawn_rate: 2
+  duration: 5m
+
+thresholds:
+  global:
+    max_error_rate: 0.02
+    min_throughput_rps: 1
+  scenarios:
+    chat_load:
+      p95_ms: 30000
+      p99_ms: 60000
+      ttft_p95_ms: 5000
+      min_quality_score: 0.6
+  on_fail: fail
+  alerts:
+    - type: slack
+      url_env: SLACK_WEBHOOK_URL
+      "on": [threshold_breach, test_complete]
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/openai
+  pricing:
+    input_per_1k: 0.00015
+    output_per_1k: 0.0006

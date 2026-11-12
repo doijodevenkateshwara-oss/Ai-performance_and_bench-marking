@@ -1,0 +1,57 @@
+# Example: gRPC endpoint (Triton inference protocol by default)
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-grpc
+
+targets:
+  - name: triton_grpc
+    layer: llm_api
+    provider: grpc
+    transport: grpc
+    base_url: localhost:8001           # host:port
+    grpc:
+      # proto_path omitted -> bundled protos/inference.proto (Triton)
+      service: inference.GRPCInferenceService
+      method: ModelInfer
+      tls: false
+      request_fields:
+        text: inputs.contents.string_contents   # logical name only; see notes
+      response_fields:
+        text: outputs
+    params:
+      model: ensemble_model
+    prompts:
+      - "Hello, what model are you?"
+      - "Explain {topic}."
+    vars:
+      topic: ["kubernetes", "finops", "observability"]
+    timeout_s: 60
+
+scenarios:
+  - name: grpc_load
+    target: triton_grpc
+    weight: 100
+    think_time: [0.5, 1.5]
+    quality:
+      sample_rate: 0.2
+      heuristics:
+        non_empty: true
+        min_chars: 3
+
+load:
+  users: 5
+  spawn_rate: 1
+  duration: 3m
+
+thresholds:
+  scenarios:
+    grpc_load:
+      p95_ms: 20000
+      max_error_rate: 0.05
+  on_fail: warn
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/grpc

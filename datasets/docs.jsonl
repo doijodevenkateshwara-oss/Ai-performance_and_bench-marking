@@ -1,0 +1,5 @@
+{"text": "Kubernetes (K8s) is an open-source container orchestration platform that automates deployment, scaling, and management of containerized applications across clusters of machines.", "source": "k8s-docs"}
+{"text": "FinOps is the practice of bringing financial accountability to cloud spending, combining finance, engineering, and operations to optimize cost and usage.", "source": "finops"}
+{"text": "Observability in software systems rests on three pillars: metrics, logs, and traces, enabling teams to understand system behavior in production.", "source": "obs"}
+{"text": "LLMOps applies MLOps principles to large language model applications: prompt management, evaluation, tracing, and cost control.", "source": "llmops"}
+{"text": "The CAP theorem states that a distributed system can provide at most two of three guarantees: consistency, availability, and partition tolerance.", "source": "distributed"}
