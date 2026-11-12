@@ -11,6 +11,16 @@ This directory contains the framework documentation:
 | [methodology.md](methodology.md) | Timing accuracy, gevent concurrency model, when streaming metrics are unreliable |
 | [demo.md](demo.md) | Live demo: start the Docker observability stack, dashboard URLs, run a mock test |
 
-Dashboard screenshots live in [screenshots/](screenshots/) — currently the
-Locust live UI capture `screenshots/locust-ui.png`. Regenerate it with
-`python scripts/screenshot_dashboard.py`.
+Dashboard screenshots live in [screenshots/](screenshots/):
+
+| File | Dashboard |
+|---|---|
+| `screenshots/grafana-llm-perf.png` | Grafana — LLM Performance & Quality dashboard |
+| `screenshots/prometheus.png` | Prometheus — p95 request-duration graph |
+| `screenshots/jaeger-traces.png` | Jaeger — trace search for `llm-perf-demo` |
+| `screenshots/locust-ui.png` | Locust live UI during a run |
+
+Regenerate the Docker-stack shots with
+`.venv/bin/python scripts/screenshot_dashboards.py` (stack must be running via
+`docker compose up -d`) and the Locust shot with
+`.venv/bin/python scripts/screenshot_dashboard.py`. See [demo.md](demo.md).

@@ -89,3 +89,4 @@ finally:
     proc.terminate()
     proc.wait(timeout=10)
     srv.shutdown()
+    cfg_path.unlink(missing_ok=True)
