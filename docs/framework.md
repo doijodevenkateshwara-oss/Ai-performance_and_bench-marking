@@ -122,23 +122,27 @@ and observability assets. This page maps every file/directory to its role.
 
 ## Tests
 
+Tests are organized by scope: `tests/unit/` (mocked/local, no services),
+`tests/integration/` (real local HTTP servers), `tests/e2e/` (subprocess runs).
+
 | Path | Purpose |
 |---|---|
-| `tests/test_config.py` | Validates example configs and config normalization/rejection rules |
-| `tests/test_datasets.py` | Dataset loading, column mapping, sampling, templating, sharding, trace import/export |
-| `tests/test_prompts.py` | Prompt file loading and `{var}` rendering/row priority |
-| `tests/test_providers.py` | Provider request building/parsing for OpenAI, Anthropic, Azure, usage extraction |
-| `tests/test_streaming.py` | SSE parsing, TTFT/TPOT/ITL/generation-duration derivation |
-| `tests/test_quality.py` | Heuristic checks, judge score parsing, quality combination |
-| `tests/test_thresholds.py` | SLO rule evaluation with fake Locust stats |
-| `tests/test_security.py` | URL allowlist/private-network guards, secret redaction, python-execution gate, dataset limits, config audit |
-| `tests/test_reports.py` | Report aggregation and CSV/JSON/HTML writing |
-| `tests/test_agent_eval.py` | Agent-stage success, tool correctness, loop detection, cost cap |
-| `tests/test_grpc.py` | Bundled proto compilation and stub loading |
-| `tests/test_e2e.py` | Real headless Locust run against a mock OpenAI server + direct layer smoke test |
-| `tests/test_workstreams_c.py` | Workload profiles, analysis/bottleneck/regression/history, resource sampling/scraping |
-| `tests/e2e_runner.py` | Subprocess runner used by `test_e2e.py` (Locust must run in its own process) |
-| `tests/agent_tools.py` | Helper tool functions used by agent-eval tests |
+| `tests/unit/test_config.py` | Validates example configs and config normalization/rejection rules |
+| `tests/unit/test_datasets.py` | Dataset loading, column mapping, sampling, templating, sharding, trace import/export |
+| `tests/unit/test_prompts.py` | Prompt file loading and `{var}` rendering/row priority |
+| `tests/unit/test_providers.py` | Provider request building/parsing for OpenAI, Anthropic, Azure, usage extraction |
+| `tests/unit/test_streaming.py` | SSE parsing, TTFT/TPOT/ITL/generation-duration derivation |
+| `tests/unit/test_evaluation.py` | Heuristic checks, judge score parsing, quality combination |
+| `tests/unit/test_thresholds.py` | SLO rule evaluation with fake Locust stats |
+| `tests/unit/test_security.py` | URL allowlist/private-network guards, secret redaction, python-execution gate, dataset limits, config audit |
+| `tests/unit/test_reports.py` | Report aggregation and CSV/JSON/HTML writing |
+| `tests/unit/test_agent_eval.py` | Agent-stage success, tool correctness, loop detection, cost cap |
+| `tests/unit/test_grpc.py` | Bundled proto compilation and stub loading |
+| `tests/unit/test_workstreams_c.py` | Workload profiles, analysis/bottleneck/regression/history, resource sampling |
+| `tests/integration/test_prometheus.py` | Prometheus `/metrics` scraping against a real local HTTP server |
+| `tests/e2e/test_locust_execution.py` | Real headless Locust run against a mock OpenAI server + direct layer smoke test |
+| `tests/e2e/e2e_runner.py` | Subprocess runner used by `test_locust_execution.py` (Locust must run in its own process) |
+| `tests/unit/agent_tools.py` | Helper tool functions used by agent-eval tests |
 
 ## Observability assets
 

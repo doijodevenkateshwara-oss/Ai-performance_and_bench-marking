@@ -2,7 +2,7 @@
 
 Locust monkeypatches the process with gevent, which conflicts with pytest's
 already-imported modules — and real usage is a separate process anyway — so the
-runner executes `tests/e2e_runner.py` via subprocess.
+runner executes `tests/e2e/e2e_runner.py` via subprocess.
 
 
 Author: Venkateshwara Doijode

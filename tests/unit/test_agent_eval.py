@@ -69,7 +69,9 @@ def patch_llm(monkeypatch):
 def test_agent_happy_path_success(patch_llm):
     """Agent answers directly on the first step -> success."""
     patch_llm([_resp(tool_calls=[_tc("search", tc_id="c1")]), _resp("final answer here")])
-    stage = _stage(tools=[{"name": "search", "type": "function", "import_path": "tests.agent_tools:echo"}])
+    stage = _stage(
+        tools=[{"name": "search", "type": "function", "import_path": "tests.unit.agent_tools:echo"}]
+    )
     ctx = _ctx()
     run_stage_agent(stage, ctx)
     ev = ctx.agent_eval
@@ -87,7 +89,7 @@ def test_agent_loop_detection(patch_llm):
     stage = _stage(
         max_iterations=6,
         loop_repeat_threshold=2,
-        tools=[{"name": "search", "type": "function", "import_path": "tests.agent_tools:echo"}],
+        tools=[{"name": "search", "type": "function", "import_path": "tests.unit.agent_tools:echo"}],
     )
     ctx = _ctx()
     run_stage_agent(stage, ctx)
@@ -102,7 +104,7 @@ def test_agent_max_iterations_pass_config(patch_llm):
     patch_llm([_resp(tool_calls=[_tc("search", tc_id="c1")])] * 10)
     stage = _stage(
         max_iterations=3,
-        tools=[{"name": "search", "type": "function", "import_path": "tests.agent_tools:echo"}],
+        tools=[{"name": "search", "type": "function", "import_path": "tests.unit.agent_tools:echo"}],
         success=AgentSuccessConfig(on_max_iterations="pass"),
     )
     ctx = _ctx()
@@ -160,7 +162,7 @@ def test_agent_cost_cap(patch_llm):
     stage = _stage(
         max_iterations=6,
         max_cost_usd=0.0001,
-        tools=[{"name": "search", "type": "function", "import_path": "tests.agent_tools:echo"}],
+        tools=[{"name": "search", "type": "function", "import_path": "tests.unit.agent_tools:echo"}],
     )
     pricing = PricingConfig(input_per_1k=1.0, output_per_1k=1.0)  # 10+5 tokens -> $0.015/step
     ctx = _ctx(pricing=pricing)
