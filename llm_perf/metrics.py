@@ -46,6 +46,14 @@ def _log_custom(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     tokens_per_sec: float = 0.0,
+    input_tokens_per_sec: float = 0.0,
+    tpot_s: float | None = None,
+    generation_s: float | None = None,
+    itl_avg_ms: float | None = None,
+    itl_p95_ms: float | None = None,
+    queue_wait_s: float | None = None,
+    retries: int = 0,
+    timed_out: bool = False,
     quality_score: float | None = None,
     context_recall: float | None = None,
 ):
@@ -66,6 +74,30 @@ def _log_custom(
         if tokens_per_sec:
             e = stats.get(name, "TOKENS_PER_SEC")
             e.log(int(tokens_per_sec * 100), 0)
+        if input_tokens_per_sec:
+            e = stats.get(name, "INPUT_TOKENS_PER_SEC")
+            e.log(int(input_tokens_per_sec * 100), 0)
+        if tpot_s is not None:
+            e = stats.get(name, "TPOT")
+            e.log(int(tpot_s * 1000), 0)
+        if generation_s is not None:
+            e = stats.get(name, "GEN_DURATION")
+            e.log(int(generation_s * 1000), 0)
+        if itl_avg_ms is not None:
+            e = stats.get(name, "ITL_AVG")
+            e.log(int(itl_avg_ms), 0)
+        if itl_p95_ms is not None:
+            e = stats.get(name, "ITL_P95")
+            e.log(int(itl_p95_ms), 0)
+        if queue_wait_s is not None:
+            e = stats.get(name, "QUEUE_WAIT")
+            e.log(int(queue_wait_s * 1000), 0)
+        if retries:
+            e = stats.get(name, "RETRIES")
+            e.log(retries, 0)
+        if timed_out:
+            e = stats.get(name, "TIMEOUTS")
+            e.log(1, 0)
         if quality_score is not None:
             e = stats.get(name, "QUALITY_SCORE")
             e.log(int(quality_score * 1000), 0)  # store as 0..1000
@@ -131,18 +163,39 @@ def record_response(
 
     inst["request_total"].add(1, {**attrs, "result": "success"})
     inst["request_duration"].record(e2e_s, attrs)
+    ss = resp.stream_stats or {}
     if resp.ttft_s is not None:
         inst["ttft"].record(resp.ttft_s, attrs)
+    if resp.tpot_s is not None:
+        with suppress(AttributeError):
+            inst["tpot"].record(resp.tpot_s, attrs)
+    if resp.generation_s is not None:
+        with suppress(AttributeError):
+            inst["generation_duration"].record(resp.generation_s, attrs)
+    if ss.get("itl_avg_ms") is not None:
+        with suppress(AttributeError):
+            inst["inter_token_latency"].record(ss["itl_avg_ms"] / 1000.0, attrs)
+    if resp.queue_wait_s is not None:
+        with suppress(AttributeError):
+            inst["queue_wait"].record(resp.queue_wait_s, attrs)
     if resp.prompt_tokens or resp.completion_tokens:
         if resp.prompt_tokens:
             inst["tokens"].add(resp.prompt_tokens, {**attrs, "kind": "input"})
         if resp.completion_tokens:
             inst["tokens"].add(resp.completion_tokens, {**attrs, "kind": "output"})
-        gen_ms = max(e2e_s - (resp.ttft_s or 0), 0.001)
-        tps = resp.completion_tokens / gen_ms if resp.completion_tokens else 0.0
+        # output tok/s over the generation window when known, else e2e - ttft
+        gen_s = resp.generation_s
+        if gen_s is None and resp.ttft_s is not None:
+            gen_s = max(e2e_s - resp.ttft_s, 0.001)
+        gen_s = gen_s if gen_s else max(e2e_s, 0.001)
+        tps = resp.completion_tokens / gen_s if resp.completion_tokens else 0.0
         if tps:
             with suppress(AttributeError):
                 inst["tokens_per_second"].set(tps, attrs)
+        itps = resp.prompt_tokens / max(e2e_s, 0.001) if resp.prompt_tokens else 0.0
+        if itps:
+            with suppress(AttributeError):
+                inst["input_tokens_per_second"].set(itps, attrs)
 
     _log_custom(
         _locust_stats(),
@@ -150,15 +203,43 @@ def record_response(
         ttft_s=resp.ttft_s,
         prompt_tokens=resp.prompt_tokens,
         completion_tokens=resp.completion_tokens,
+        tokens_per_sec=(resp.completion_tokens / gen_s) if resp.completion_tokens else 0.0,
+        input_tokens_per_sec=(resp.prompt_tokens / max(e2e_s, 0.001)) if resp.prompt_tokens else 0.0,
+        tpot_s=resp.tpot_s,
+        generation_s=resp.generation_s,
+        itl_avg_ms=ss.get("itl_avg_ms"),
+        itl_p95_ms=ss.get("itl_p95_ms"),
+        queue_wait_s=resp.queue_wait_s,
+        retries=resp.retries,
+        timed_out=resp.timed_out,
     )
 
 
-def record_error(scenario: str, provider: str, error: str, e2e_s: float = 0.0):
+def record_error(
+    scenario: str,
+    provider: str,
+    error: str,
+    e2e_s: float = 0.0,
+    timed_out: bool = False,
+    retries: int = 0,
+):
     inst = instruments()
     inst["request_total"].add(1, {"scenario": scenario, "provider": provider, "result": "error"})
     if e2e_s:
         inst["request_duration"].record(e2e_s, {"scenario": scenario, "provider": provider})
     stats = _locust_stats()
+    if retries:
+        with suppress(AttributeError):
+            inst["retries"].add(retries, {"scenario": scenario, "provider": provider})
+        if stats is not None:
+            with suppress(Exception):
+                stats.get(scenario, "RETRIES").log(retries, 0)
+    if timed_out:
+        with suppress(AttributeError):
+            inst["timeouts"].add(1, {"scenario": scenario, "provider": provider})
+        if stats is not None:
+            with suppress(Exception):
+                stats.get(scenario, "TIMEOUTS").log(1, 0)
     if stats is not None:
         with suppress(Exception):
             stats.log_error("LLM_ERROR", scenario, error[:500])
@@ -221,8 +302,19 @@ def log_request_event(
         )
 
 
+_CURRENT_USERS = 0
+_PEAK_USERS = 0
+
+
 def record_users(delta: int):
+    global _CURRENT_USERS, _PEAK_USERS
+    _CURRENT_USERS = max(_CURRENT_USERS + delta, 0)
+    _PEAK_USERS = max(_PEAK_USERS, _CURRENT_USERS)
     instruments()["users"].add(delta)
+
+
+def peak_users() -> int:
+    return _PEAK_USERS
 
 
 def record_threshold(rule: str, passed: bool):

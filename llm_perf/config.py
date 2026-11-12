@@ -100,6 +100,8 @@ class BaseTarget(BaseModel):
     weight: float = 1.0  # used when referenced from scenarios; also default scenario weight
     think_time: tuple[float, float] | None = None
     timeout_s: float = 120.0
+    retries: int = Field(default=0, ge=0)  # retry attempts on timeout/connect/5xx (http providers)
+    retry_backoff_s: float = Field(default=0.5, ge=0.0)
     tags: dict[str, str] = Field(default_factory=dict)
     vars: dict[str, list[Any]] = Field(default_factory=dict)  # {var} template pools
 
@@ -256,12 +258,34 @@ class LoadStage(BaseModel):
     duration: str  # e.g. "2m"
 
 
+LoadProfile = Literal[
+    "smoke", "baseline", "load", "stress", "spike", "soak", "scalability", "capacity", "custom"
+]
+
+
 class LoadConfig(BaseModel):
     users: int = 1
     spawn_rate: float = 1.0
     duration: str | None = None
     stages: list[LoadStage] | None = None
     run_time: str | None = None
+    # workload profile — when set, a LoadTestShape drives ramp/hold/down
+    profile: LoadProfile | None = None
+    ramp_up: str | None = None  # e.g. "2m"; defaults per profile
+    ramp_down: str | None = None
+    # stress / scalability / capacity step controls
+    steps: int | None = None
+    step_users: int | None = None
+    step_duration: str | None = None
+    # spike profile
+    baseline_users: int | None = None
+    baseline_duration: str | None = None
+    # capacity profile: stop early when error rate exceeds this
+    capacity_max_error_rate: float = Field(default=0.05, ge=0.0, le=1.0)
+
+    @property
+    def uses_shape(self) -> bool:
+        return self.profile is not None or bool(self.stages)
 
 
 class ThresholdRule(BaseModel):
@@ -272,12 +296,19 @@ class ThresholdRule(BaseModel):
     p95_ms: float | None = None
     p99_ms: float | None = None
     ttft_p95_ms: float | None = None
+    tpot_p95_ms: float | None = None
+    itl_p95_ms: float | None = None
+    gen_p95_ms: float | None = None
+    queue_p95_ms: float | None = None
     max_error_rate: float | None = None
+    max_retries: float | None = None
+    max_timeouts: float | None = None
     min_throughput_rps: float | None = None
     min_quality_score: float | None = None
     min_quality_pass_rate: float | None = None
     min_context_recall: float | None = None
     max_cost_usd: float | None = None
+    max_cost_per_success_usd: float | None = None
     # per-stage rules: dict stage_name -> {p95_ms: ...}
     stages: dict[str, dict[str, float]] = Field(default_factory=dict)
 
@@ -297,11 +328,35 @@ class PricingConfig(BaseModel):
     currency: str = "USD"
 
 
+class RegressionConfig(BaseModel):
+    """Baseline comparison regression detection."""
+
+    enabled: bool = True
+    on_fail: Literal["warn", "fail"] = "warn"  # fail -> nonzero exit like thresholds
+    thresholds_pct: dict[str, float] = Field(default_factory=dict)  # metric -> allowed % change
+
+
+class ScrapeConfig(BaseModel):
+    """Scrape a Prometheus /metrics endpoint (e.g. the target under test)."""
+
+    name: str = "target"
+    url: str
+    metrics: list[str] = Field(default_factory=list)  # empty = all
+    timeout_s: float = 5.0
+
+
 class ReportConfig(BaseModel):
     formats: list[Literal["csv", "json", "html"]] = Field(default_factory=lambda: ["csv", "json", "html"])
     output_dir: str = "results"
     percentiles: list[float] = Field(default_factory=lambda: [50.0, 90.0, 95.0, 99.0])
     pricing: PricingConfig | None = None
+    # run history + baseline comparison
+    history: bool = True
+    baseline: Literal["previous", "designated", "none"] | str = "previous"
+    regression: RegressionConfig = Field(default_factory=RegressionConfig)
+    # resource monitoring
+    collect_resources: bool = True
+    scrape: list[ScrapeConfig] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

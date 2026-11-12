@@ -37,14 +37,24 @@ class ThresholdReport:
 
 # metric name -> (stats lookup kind)
 _PCT_RULES = [("p50_ms", 50), ("p90_ms", 90), ("p95_ms", 95), ("p99_ms", 99)]
+# custom Locust stat entry -> ThresholdRule field for p95 gating
+_CUSTOM_P95_RULES = [
+    ("ttft_p95_ms", "TTFT"),
+    ("tpot_p95_ms", "TPOT"),
+    ("itl_p95_ms", "ITL_P95"),
+    ("gen_p95_ms", "GEN_DURATION"),
+    ("queue_p95_ms", "QUEUE_WAIT"),
+]
 _GAUGE_RULES = [
     ("max_error_rate", "error_rate", "<="),
+    ("max_retries", "retries", "<="),
+    ("max_timeouts", "timeouts", "<="),
     ("min_throughput_rps", "throughput_rps", ">="),
     ("min_quality_score", "quality_score", ">="),
     ("min_quality_pass_rate", "quality_pass_rate", ">="),
     ("min_context_recall", "context_recall", ">="),
     ("max_cost_usd", "cost_usd", "<="),
-    ("ttft_p95_ms", "ttft_p95", "<="),
+    ("max_cost_per_success_usd", "cost_per_success_usd", "<="),
 ]
 
 
@@ -100,18 +110,21 @@ def evaluate(
                     scope=scope,
                 )
             )
-        # ttft p95
-        if rule.ttft_p95_ms is not None:
-            e = _entry_for(stats, scenario or "", "TTFT") if scenario else None
+        # p95 rules on custom stat entries (TTFT, TPOT, ITL, gen duration, queue wait)
+        for field_name, method in _CUSTOM_P95_RULES:
+            limit = getattr(rule, field_name)
+            if limit is None:
+                continue
+            e = _entry_for(stats, scenario or "", method) if scenario else None
             actual = _percentile(e, 95) if e else None
             rep.results.append(
                 RuleResult(
-                    name=f"{label}.ttft_p95_ms",
-                    metric="ttft_p95_ms",
+                    name=f"{label}.{field_name}",
+                    metric=f"{method.lower()}_p95_ms",
                     comparator="<=",
-                    threshold=rule.ttft_p95_ms,
+                    threshold=limit,
                     actual=actual,
-                    passed=(actual <= rule.ttft_p95_ms) if actual is not None else None,
+                    passed=(actual <= limit) if actual is not None else None,
                     scope=scope,
                 )
             )
@@ -237,9 +250,37 @@ def _gauge_value(
             return (e.avg_response_time or 0) / 1000.0
         if metric == "cost_usd":
             return cost_by_scenario.get(scenario or "__total__")
+        if metric == "cost_per_success_usd":
+            return _cost_per_success(stats, scenario, cost_by_scenario)
+        if metric == "retries":
+            e = _entry_for(stats, scenario or "", "RETRIES") if scenario else None
+            if e is None or e.num_requests == 0:
+                return 0.0
+            # logged value = retries per response; total = avg * count
+            return (e.avg_response_time or 0.0) * e.num_requests
+        if metric == "timeouts":
+            e = _entry_for(stats, scenario or "", "TIMEOUTS") if scenario else None
+            return float(e.num_requests) if e is not None else 0.0
     except Exception:
         return None
     return None
+
+
+def _cost_per_success(stats, scenario, cost_by_scenario):
+    """Total scenario cost / successful requests."""
+    cost = cost_by_scenario.get(scenario or "__total__")
+    if not cost:
+        return None
+    reqs = fails = 0
+    try:
+        for e in stats.entries.values():
+            if (scenario is None or e.name == scenario) and e.method in ("", "POST", "GET"):
+                reqs += e.num_requests
+                fails += e.num_failures
+    except Exception:
+        return None
+    successes = max(reqs - fails, 1)
+    return cost / successes
 
 
 def _stage_percentile(stage_stats, scenario, stage_name, metric_name):

@@ -6,6 +6,7 @@ import concurrent.futures
 import time
 
 from .base import NormalizedResponse, RequestSpec
+from .http_common import stream_timing_stats
 
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=64)
 _clients: dict = {}
@@ -103,6 +104,7 @@ class BedrockAdapter:
     def _call_stream(self, client, inp, spec, start) -> NormalizedResponse:
         text_parts = []
         ttft = None
+        chunk_offsets: list[float] = []
         usage = {}
         model_id = inp.pop("modelId")
         inference = inp.pop("inferenceConfig", {})
@@ -117,9 +119,11 @@ class BedrockAdapter:
                 if "contentBlockDelta" in event:
                     delta = event["contentBlockDelta"].get("delta", {}).get("text", "")
                     if delta:
+                        now = time.monotonic() - start
                         if ttft is None:
-                            ttft = time.monotonic() - start
+                            ttft = now
                         text_parts.append(delta)
+                        chunk_offsets.append(now)
                 elif "metadata" in event:
                     usage = event["metadata"].get("usage", {}) or {}
         except Exception as e:
@@ -127,12 +131,16 @@ class BedrockAdapter:
         elapsed = time.monotonic() - start
         p = int(usage.get("inputTokens") or 0)
         c = int(usage.get("outputTokens") or 0)
+        timing = stream_timing_stats(chunk_offsets, c)
         return NormalizedResponse(
             text="".join(text_parts),
             prompt_tokens=p,
             completion_tokens=c,
             total_tokens=p + c,
             ttft_s=ttft or elapsed,
+            tpot_s=timing["tpot_s"],
+            generation_s=timing["generation_s"],
+            stream_stats=timing,
             model=model_id,
             raw=usage,
             stage_metrics={"e2e_s": elapsed},

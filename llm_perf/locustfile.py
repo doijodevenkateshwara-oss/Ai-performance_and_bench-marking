@@ -27,12 +27,73 @@ for _u in _users:
     globals()[_u.__name__] = _u
 
 
+# Load-shape for profile/custom-stages runs. Only defined when configured so
+# flat runs keep using plain -u/-r/-t locust args.
+if _config.load.uses_shape:
+    from locust import LoadTestShape
+
+    from .workload import build_phases
+
+    class LLMPerfShape(LoadTestShape):
+        """Drives ramp-up / steady-state / ramp-down (and step profiles)."""
+
+        def __init__(self):
+            super().__init__()
+            self._phases = build_phases(_config.load)
+            self._idx = 0
+            self._phase_start = 0.0
+            self._last_label = None
+            from .workload import _seconds
+
+            self._run_time_cap = _seconds(_config.load.run_time, 0.0) or None
+
+        def _current_phase(self):
+            now = self.get_run_time()
+            while self._idx < len(self._phases):
+                p = self._phases[self._idx]
+                if now < self._phase_start + p.duration_s:
+                    if p.label != self._last_label:
+                        self._last_label = p.label
+                        print(
+                            f"[llm-perf] phase {p.label}: users={p.target_users} "
+                            f"spawn={p.spawn_rate}/s dur={p.duration_s:.0f}s"
+                        )
+                    return p
+                self._phase_start += p.duration_s
+                self._idx += 1
+            return None
+
+        def _capacity_breached(self) -> bool:
+            if _config.load.profile != "capacity" or self.runner is None:
+                return False
+            try:
+                t = self.runner.stats.total
+                if t.num_requests < 20:
+                    return False
+                err = t.num_failures / max(t.num_requests, 1)
+                return err > _config.load.capacity_max_error_rate
+            except Exception:
+                return False
+
+        def tick(self):
+            if self._capacity_breached():
+                print("[llm-perf] capacity profile: error-rate breach, stopping early")
+                return None
+            if self._run_time_cap and self.get_run_time() >= self._run_time_cap:
+                return None
+            p = self._current_phase()
+            if p is None:
+                return None
+            return p.target_users, p.spawn_rate
+
+
 _test_start_ts = None
+_resource_sampler = None
 
 
 @events.test_start.add_listener
 def _on_test_start(environment, **kw):
-    global _test_start_ts
+    global _test_start_ts, _resource_sampler
     import time
 
     _test_start_ts = time.time()
@@ -40,10 +101,17 @@ def _on_test_start(environment, **kw):
     if oc.enabled:
         setup_otel(service_name=oc.service_name, endpoint=oc.endpoint, sample_ratio=oc.sample_ratio)
     # record_users is driven by User.on_start/on_stop
+    if _config.report.collect_resources:
+        from .resources import HostSampler
+
+        _resource_sampler = HostSampler(interval_s=5.0)
+        _resource_sampler.start()
 
 
 @events.test_stop.add_listener
 def _on_test_stop(environment, **kw):
+    if _resource_sampler is not None:
+        _resource_sampler.stop()
     _run_reports_and_thresholds(environment)
 
 
@@ -95,7 +163,11 @@ def _run_reports_and_thresholds(environment) -> None:
                 record_threshold(r.name, r.passed)
 
     report = aggregate(stats, _config, dur or 0.0, trep, cost_by_scenario)
+    _enrich_report(report, stage_stats)
     paths = write_reports(report, _config, trep)
+    from . import history
+
+    history.record_run(report, _config)
     for p in paths:
         print(f"[llm-perf] report written: {p}")
 
@@ -119,3 +191,56 @@ def _run_reports_and_thresholds(environment) -> None:
         import os
 
         os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
+
+    # regression gate
+    reg = report.get("regression") or {}
+    if reg.get("regressions") and _config.report.regression.on_fail == "fail":
+        print(f"[llm-perf] {len(reg['regressions'])} REGRESSION(S) — exiting nonzero")
+        import os
+
+        os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
+
+
+def _enrich_report(report: dict, stage_stats: dict) -> None:
+    """Attach load profile, stages, resources, analysis, comparison to report."""
+    from . import analysis, history
+    from .metrics import peak_users
+    from .workload import schedule_summary
+
+    report["load"] = {
+        "profile": _config.load.profile,
+        "users": _config.load.users,
+        "spawn_rate": _config.load.spawn_rate,
+        "duration": _config.load.duration,
+        "run_time": _config.load.run_time,
+    }
+    report["phases"] = schedule_summary(_config.load)
+    report["totals"]["peak_users"] = peak_users()
+    report["stages"] = [{"scenario": sc, "stage": st, **vals} for (sc, st), vals in stage_stats.items()]
+
+    resources = {}
+    if _config.report.collect_resources:
+        resources["loadgen"] = _resource_sampler.summary() if _resource_sampler else {}
+    if _config.report.scrape:
+        from .resources import collect_target_metrics
+
+        resources["targets"] = collect_target_metrics(_config.report.scrape)
+    if resources:
+        report["resources"] = resources
+
+    report["analysis"] = {
+        "executive_summary": analysis.executive_summary(report),
+        "slo": analysis.slo_rollup(report),
+        "bottlenecks": analysis.identify_bottlenecks(report),
+    }
+
+    baseline = history.resolve_baseline(_config, report)
+    if baseline:
+        report["comparison"] = analysis.compare_runs(report, baseline)
+        if _config.report.regression.enabled:
+            report["regression"] = analysis.detect_regressions(
+                report, baseline, _config.report.regression.thresholds_pct
+            )
+    else:
+        report["comparison"] = None
+        report["regression"] = {"checked": False, "regressions": []}

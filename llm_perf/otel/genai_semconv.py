@@ -20,6 +20,29 @@ def _instruments():
         "tokens_per_second": m.create_gauge(
             "llm_perf.tokens_per_second", description="Output tokens per second"
         ),
+        "input_tokens_per_second": m.create_gauge(
+            "llm_perf.input_tokens_per_second", description="Input (prompt) tokens per second"
+        ),
+        "tpot": m.create_histogram(
+            "llm_perf.tpot", unit="s", description="Time per output token (decode cadence)"
+        ),
+        "generation_duration": m.create_histogram(
+            "llm_perf.generation.duration",
+            unit="s",
+            description="First token to last token (decode phase only)",
+        ),
+        "inter_token_latency": m.create_histogram(
+            "llm_perf.inter_token_latency",
+            unit="s",
+            description="Mean inter-chunk latency during streaming",
+        ),
+        "queue_wait": m.create_histogram(
+            "llm_perf.queue_wait",
+            unit="s",
+            description="Task start to request dispatch (pre-request overhead)",
+        ),
+        "retries": m.create_counter("llm_perf.retries", description="Retry attempts on transient failures"),
+        "timeouts": m.create_counter("llm_perf.timeouts", description="Requests that timed out"),
         "users": m.create_up_down_counter("llm_perf.users", description="Active virtual users"),
         "stage_duration": m.create_histogram(
             "llm_perf.stage.duration",

@@ -1,0 +1,102 @@
+# Example: workload profiles + retries + rich reporting
+#
+# Profiles: smoke | baseline | load | stress | spike | soak | scalability | capacity | custom
+# Each profile expands into ramp-up / steady-state / ramp-down phases driven by
+# a Locust LoadTestShape. Override any knob below or pass --profile on the CLI.
+
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-profiles
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+    sample:
+      strategy: random
+      count: 100
+      seed: 11
+
+targets:
+  - name: openai_chat
+    layer: llm_api
+    provider: openai
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    stream: true
+    params:
+      model: gpt-4o-mini
+      max_tokens: 256
+      temperature: 0.7
+    dataset: qa_pairs
+    timeout_s: 60
+    retries: 2            # retry on timeout/connect/5xx
+    retry_backoff_s: 0.5
+
+scenarios:
+  - name: chat_load
+    target: openai_chat
+    weight: 100
+    think_time: [0.2, 1.0]
+
+load:
+  users: 20               # peak concurrency for step profiles / steady state
+  spawn_rate: 4           # users spawned per second
+  profile: load           # smoke|baseline|load|stress|spike|soak|scalability|capacity
+  duration: 5m            # steady-state hold (per-step for step profiles)
+  ramp_up: 2m             # optional; defaults per profile
+  ramp_down: 1m
+  # stress/scalability/capacity tuning:
+  # steps: 4               # stress: N equal steps up to `users`
+  # step_users: 5          # scalability/capacity: increment per step
+  # step_duration: 2m      # hold time per step
+  # spike extras:
+  # baseline_users: 2
+  # baseline_duration: 2m
+  # capacity: stop early when error rate exceeds this
+  capacity_max_error_rate: 0.05
+
+thresholds:
+  global:
+    max_error_rate: 0.02
+    max_retries: 50
+    max_timeouts: 10
+    min_throughput_rps: 1
+  scenarios:
+    chat_load:
+      p95_ms: 30000
+      p99_ms: 60000
+      ttft_p95_ms: 5000
+      tpot_p95_ms: 200     # ms per output token
+      itl_p95_ms: 250      # ms inter-token latency
+      gen_p95_ms: 20000    # first->last token (decode phase)
+      queue_p95_ms: 5000   # task start -> dispatch overhead
+      min_quality_score: 0.6
+      max_cost_per_success_usd: 0.01
+  on_fail: fail
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/profiles
+  pricing:
+    input_per_1k: 0.00015
+    output_per_1k: 0.0006
+  history: true            # keep every run under results/profiles/history/
+  baseline: previous       # previous | designated | none | /path/to/run.json
+  regression:
+    enabled: true
+    on_fail: warn          # warn | fail (fail -> nonzero exit like thresholds)
+    thresholds_pct:        # optional overrides of default allowed % change
+      p95_ms: 10
+      quality_score_avg: -5
+  collect_resources: true  # psutil CPU/mem of the load generator
+  scrape:                  # optional: pull target-side Prometheus metrics
+    - name: app_metrics
+      url: http://localhost:9090/metrics   # your app's /metrics endpoint
+      metrics: [http_requests_total, http_request_duration_seconds]
+      timeout_s: 5

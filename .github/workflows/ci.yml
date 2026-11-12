@@ -23,6 +23,6 @@ jobs:
         run: black --check llm_perf tests
       - name: Validate example configs
         run: |
-          for f in configs/*.yaml; do llm-perf validate "$f"; done
+          for f in configs/*.yaml; do llm-perf validate -c "$f"; done
       - name: Tests
         run: pytest -q

@@ -39,6 +39,10 @@ llm-perf validate -c configs/openai_example.yaml
 # run headless for 2 minutes with 10 users
 llm-perf run -c configs/openai_example.yaml --headless -u 10 -t 2m
 
+# or use a workload profile (ramp-up -> steady -> ramp-down phases)
+llm-perf run -c configs/profiles_example.yaml --headless
+llm-perf run -c configs/openai_example.yaml --profile stress --users 50 --headless
+
 # or use the standard locust CLI directly (web UI on :8089)
 LLM_PERF_CONFIG=configs/openai_example.yaml locust -f locustfile.py
 ```
@@ -224,6 +228,57 @@ CLI exits with an error. You can also keep separate config files per layer —
 `configs/openai_example.yaml`, `configs/rag_example.yaml`,
 `configs/agent_example.yaml`, `configs/grpc_example.yaml` are standalone.
 
+## Workload profiles
+
+Standard load shapes are built in — set `load.profile` (or pass
+`--profile` / `--ramp-up` / `--ramp-down` on the CLI). A Locust
+`LoadTestShape` then drives ramp-up → steady-state → ramp-down automatically:
+
+| Profile | Shape |
+|---|---|
+| `smoke` | quick sanity run — short ramp, short hold, ramp down |
+| `baseline` | gentle long ramp, long steady hold — your reference run |
+| `load` | normal load — ramp to `users`, hold `duration`, ramp down |
+| `stress` | step up through `steps` levels to find the breaking point |
+| `spike` | jump to `users`, hold, return to `baseline_users`, recover |
+| `soak` | extended steady hold (default 4h) for leaks/resource drift |
+| `scalability` | step through concurrency levels, then hold at peak |
+| `capacity` | like scalability but stops early when error rate exceeds `capacity_max_error_rate` |
+| `custom` | explicit `load.stages` list (same as locust stage syntax) |
+
+```yaml
+load:
+  users: 50            # peak concurrency (or per-step ceiling)
+  spawn_rate: 5        # users spawned per second
+  profile: stress
+  duration: 3m         # steady hold / per-step hold
+  steps: 5             # stress: 5 equal steps up to `users`
+  step_users: 10       # scalability/capacity: +10 users per step
+  step_duration: 2m
+  ramp_up: 2m          # optional override (defaults per profile)
+  ramp_down: 1m
+```
+
+Phase transitions are printed to the console (`[llm-perf] phase ...`) and the
+full schedule is embedded in the JSON/HTML report under `phases`.
+
+## Retries, timeouts & queue wait
+
+Per-target resilience and scheduling metrics:
+
+```yaml
+targets:
+  - name: openai_chat
+    retries: 2            # attempts on timeout / connect error / HTTP 5xx
+    retry_backoff_s: 0.5  # exponential backoff base
+    timeout_s: 60
+```
+
+- **queue wait** — time from virtual-user task start to request dispatch
+  (think-time/scheduler overhead), logged per request as `QUEUE_WAIT`.
+- **retries / timeouts** — counted per request and per scenario; thresholdable
+  via `max_retries`, `max_timeouts`.
+
 ## Quality scoring
 
 Per scenario, `quality:` combines three signals (all optional, all reported
@@ -282,6 +337,13 @@ thresholds:
     chat_load:
       p95_ms: 8000
       ttft_p95_ms: 1500
+      tpot_p95_ms: 200        # ms per output token
+      itl_p95_ms: 250         # ms inter-token latency
+      gen_p95_ms: 20000       # first->last token (decode phase)
+      queue_p95_ms: 5000      # task start -> dispatch overhead
+      max_retries: 100
+      max_timeouts: 10
+      max_cost_per_success_usd: 0.01
       min_quality_score: 0.7
       min_context_recall: 0.5
       stages: { retrieve: { p95_ms: 300 }, generate: { p95_ms: 40000 } }
@@ -345,10 +407,16 @@ regenerate with `python scripts/screenshot_dashboard.py`):
 
 | Stat | Meaning |
 |---|---|
-| `POST` / scenario name | request count, failures, RPS, avg + p50/p90/p95/p99 latency |
-| `TTFT` | time-to-first-token in ms (streaming targets) |
+| `POST` / scenario name | request count, failures, RPS, concurrent users, avg + p50/p90/p95/p99 e2e latency |
+| `TTFT` | **time-to-first-token** ms — request sent → first streamed token (streaming only) |
+| `GEN_DURATION` | **generation duration** ms — first token → last token (decode phase only) |
+| `TPOT` | **time per output token** ms — decode cadence |
+| `ITL_AVG` / `ITL_P95` | **inter-token latency** ms — mean / p95 gap between streamed chunks |
+| `INPUT_TOKENS_PER_SEC` | prompt-token processing rate |
+| `TOKENS_PER_SEC` | output decode throughput (×100 scaling) |
 | `TOKENS` / `PROMPT_TOKENS` / `COMPLETION_TOKENS` | token counts |
-| `TOKENS_PER_SEC` | decode throughput (×100 scaling) |
+| `QUEUE_WAIT` | task start → request dispatch ms (scheduling overhead) |
+| `RETRIES` / `TIMEOUTS` | retry attempts / timed-out requests per scenario |
 | `QUALITY_SCORE` | quality score ×1000 (0–1000) |
 | `CONTEXT_RECALL` | RAG context recall ×1000 |
 
@@ -359,6 +427,12 @@ regenerate with `python scripts/screenshot_dashboard.py`):
 | `llm_perf.request.duration` | histogram (s) | scenario, provider |
 | `llm_perf.request.total` | counter | scenario, provider, result |
 | `llm_perf.ttft` | histogram (s) | scenario, provider |
+| `llm_perf.tpot` | histogram (s) | scenario, provider |
+| `llm_perf.generation.duration` | histogram (s) | scenario, provider — decode phase |
+| `llm_perf.inter_token_latency` | histogram (s) | scenario, provider |
+| `llm_perf.input_tokens_per_second` | gauge | scenario, provider |
+| `llm_perf.queue_wait` | histogram (s) | scenario, provider |
+| `llm_perf.retries` / `llm_perf.timeouts` | counters | scenario, provider |
 | `llm_perf.tokens` | counter | scenario, kind=input/output |
 | `llm_perf.tokens_per_second` | gauge | scenario, provider |
 | `llm_perf.users` | up-down counter | — |
@@ -377,10 +451,16 @@ reason).
 
 End-of-run reports in `report.output_dir`:
 
-- **CSV** — per-scenario stats (requests, failures, percentiles, TTFT,
-  tokens/sec, tokens, cost, quality score/pass rate, context recall).
-- **JSON** — machine-readable aggregate for CI/regression tracking.
-- **HTML** — human-readable summary with threshold verdicts.
+- **CSV** — per-scenario stats (requests, failures, percentiles, TTFT, TPOT,
+  ITL, generation duration, queue wait, retries/timeouts, tokens/sec, cost,
+  quality score, context recall).
+- **JSON** — machine-readable aggregate for CI/regression tracking, including
+  `phases`, `stages`, `resources`, `analysis`, `comparison`, `regression`.
+- **HTML** — executive summary cards, verdict banner, per-scenario table with
+  streaming-timing columns, TTFT-vs-generation latency composition chart,
+  pipeline stage breakdown, **bottleneck analysis**, **cost analysis**,
+  **resource utilization**, **baseline comparison**, **regression detection**,
+  SLO rollup, quality, and threshold verdicts.
 
 ```yaml
 report:
@@ -388,7 +468,38 @@ report:
   output_dir: results/openai
   percentiles: [50, 90, 95, 99]
   pricing: { input_per_1k: 0.15, output_per_1k: 0.60 }   # USD per 1K tokens -> cost metrics
+  history: true            # every run saved to <output_dir>/history/
+  baseline: previous       # previous | designated | none | /path/to/run.json
+  regression:
+    enabled: true
+    on_fail: warn          # fail -> nonzero exit, like thresholds.on_fail
+    thresholds_pct: { p95_ms: 10, quality_score_avg: -5 }
+  collect_resources: true  # psutil CPU/mem of the load generator
+  scrape:                  # target-side Prometheus metrics
+    - name: app
+      url: http://localhost:9090/metrics
+      metrics: [http_requests_total]
 ```
+
+### Run history & baselines
+
+Every run is archived under `results/<dir>/history/`. Compare against the
+previous run (`baseline: previous`), a designated baseline, or an explicit
+file:
+
+```bash
+# mark the latest run as the designated baseline
+llm-perf baseline mark -c configs/openai_example.yaml
+
+# list recorded runs
+llm-perf baseline list -c configs/openai_example.yaml
+```
+
+Set `report.baseline: designated` to always compare against the marked run.
+`analysis.detect_regressions` flags metrics that moved worse than the allowed
+percentage (`report.regression.thresholds_pct`, with sensible defaults for
+p95/p99/TTFT/TPOT/ITL/gen-duration/error-rate/cost/quality/tokens-s/RPS);
+`on_fail: fail` turns regressions into a CI gate.
 
 ## gRPC & proto workflow
 
@@ -448,6 +559,10 @@ llm_perf/
   prompts.py       # prompt pools + {var} templating
   thresholds.py    # SLO evaluation + webhooks
   reporters.py     # CSV/JSON/HTML reports
+  workload.py      # workload profiles -> ramp/hold/down phase schedules
+  analysis.py      # exec summary, bottlenecks, SLO rollup, baseline diff, regression
+  history.py       # run archive + designated/previous baselines
+  resources.py     # psutil host metrics + target Prometheus scrapes
   templates/       # HTML report template
 ```
 
@@ -457,7 +572,7 @@ llm_perf/
 pip install -e ".[dev]"
 ruff check llm_perf tests
 black --check llm_perf tests
-pytest -q          # 56 tests incl. a real Locust e2e run vs a mock server
+pytest -q          # 86 tests incl. a real Locust e2e run vs a mock server
 ```
 
 ## Notes & limitations (v0.1)

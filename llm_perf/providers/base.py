@@ -18,6 +18,13 @@ class NormalizedResponse:
     model: str | None = None
     raw: Any = None
     ttft_s: float | None = None  # set for streaming responses
+    # decode-phase timing (streaming only; None for unary calls)
+    tpot_s: float | None = None  # time per output token
+    generation_s: float | None = None  # first token -> last token
+    stream_stats: dict = field(default_factory=dict)  # itl_avg/p50/p95/max_ms, chunks
+    queue_wait_s: float | None = None  # task start -> request dispatch
+    retries: int = 0  # retry attempts made for this call
+    timed_out: bool = False
     stage_metrics: dict[str, float] = field(default_factory=dict)
     tool_calls: list[dict] | None = None  # OpenAI-style tool calls from the model
 

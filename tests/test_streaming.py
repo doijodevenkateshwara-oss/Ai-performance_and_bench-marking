@@ -1,4 +1,9 @@
-from llm_perf.providers.http_common import anthropic_sse_extractor, openai_sse_extractor, stream_sse
+from llm_perf.providers.http_common import (
+    anthropic_sse_extractor,
+    openai_sse_extractor,
+    stream_sse,
+    stream_timing_stats,
+)
 
 
 def _lines(payloads):
@@ -27,9 +32,12 @@ def test_stream_sse_full():
         b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
         b"data: [DONE]",
     ]
-    text, ttft, _usage, _done = stream_sse(_lines(payloads), openai_sse_extractor)
-    assert text == "Hello world"
-    assert ttft >= 0
+    sr = stream_sse(_lines(payloads), openai_sse_extractor)
+    assert sr.text == "Hello world"
+    assert sr.ttft_s >= 0
+    assert sr.completed is True
+    assert len(sr.chunk_offsets_s) == 2
+    assert sr.e2e_s >= sr.ttft_s
 
 
 def test_stream_sse_skips_comments_and_bad_json():
@@ -39,8 +47,41 @@ def test_stream_sse_skips_comments_and_bad_json():
         b'data: {"choices":[{"delta":{"content":"ok"}}]}',
         b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
     ]
-    text, _, _, _ = stream_sse(_lines(payloads), openai_sse_extractor)
-    assert text == "ok"
+    sr = stream_sse(_lines(payloads), openai_sse_extractor)
+    assert sr.text == "ok"
+
+
+def test_stream_timing_stats():
+    # two chunks 100ms apart, 5 completion tokens -> generation 0.1s, tpot ~0.025s
+    offs = [0.5, 0.6]
+    stats = stream_timing_stats(offs, completion_tokens=5)
+    assert abs(stats["generation_s"] - 0.1) < 1e-9
+    assert abs(stats["tpot_s"] - 0.1 / 4) < 1e-9
+    assert abs(stats["itl_avg_ms"] - 100.0) < 1e-6
+    assert abs(stats["itl_p50_ms"] - 100.0) < 1e-6
+    assert abs(stats["itl_p95_ms"] - 100.0) < 1e-6
+    assert abs(stats["itl_max_ms"] - 100.0) < 1e-6
+    assert stats["chunks"] == 2
+
+
+def test_stream_timing_stats_single_chunk():
+    stats = stream_timing_stats([0.3], completion_tokens=10)
+    assert stats["generation_s"] is None
+    assert stats["tpot_s"] is None
+    assert stats["itl_avg_ms"] is None
+    assert stats["chunks"] == 1
+
+
+def test_stream_sse_first_token_only():
+    payloads = [
+        b'data: {"choices":[{"delta":{"content":"a"}}]}',
+        b'data: {"choices":[{"delta":{"content":"b"}}]}',
+        b"data: [DONE]",
+    ]
+    sr = stream_sse(_lines(payloads), openai_sse_extractor, first_token_only=True)
+    assert sr.text == "a"
+    assert sr.completed is False
+    assert len(sr.chunk_offsets_s) == 1
 
 
 def test_anthropic_extractor_events():

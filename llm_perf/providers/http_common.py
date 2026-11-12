@@ -5,11 +5,30 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import ClassVar
 
 import requests
 
 from .base import RequestSpec
+
+
+@dataclass
+class StreamResult:
+    """Result of consuming an SSE stream, including per-chunk timing.
+
+    chunk_offsets_s holds the offset (seconds from stream start) of every
+    content-bearing chunk — the raw material for TPOT / inter-token latency /
+    generation-duration metrics.
+    """
+
+    text: str = ""
+    ttft_s: float | None = None
+    usage: dict | None = None
+    completed: bool = False
+    e2e_s: float = 0.0
+    chunk_offsets_s: list[float] = field(default_factory=list)
 
 
 def auth_headers(spec: RequestSpec) -> dict:
@@ -21,11 +40,12 @@ def auth_headers(spec: RequestSpec) -> dict:
 
 def stream_sse(
     iter_lines: Iterator[bytes], content_extractor, first_token_only: bool = False
-) -> tuple[str, float, dict | None, bool]:
+) -> StreamResult:
     """Consume an SSE stream.
 
     content_extractor(payload) -> (text_delta, usage_dict_or_None, done_bool)
-    Returns (full_text, ttft_seconds, usage, completed).
+    Returns a StreamResult with full text, TTFT, merged usage, completion flag,
+    total elapsed time, and per-chunk offsets for TPOT/ITL derivation.
     With first_token_only=True, stops after the first content chunk
     (completed=False) — used for TTFT-focused scenarios.
     """
@@ -33,6 +53,7 @@ def stream_sse(
     ttft: float | None = None
     usage = None
     completed = False
+    chunk_offsets: list[float] = []
     start = time.monotonic()
     for raw in iter_lines:
         line = raw.decode("utf-8", "replace").strip() if isinstance(raw, bytes) else str(raw).strip()
@@ -54,17 +75,68 @@ def stream_sse(
             else:
                 usage.update({k: v for k, v in usage_chunk.items() if v is not None})
         if delta_text:
+            now = time.monotonic() - start
             if ttft is None:
-                ttft = time.monotonic() - start
+                ttft = now
             text_parts.append(delta_text)
+            chunk_offsets.append(now)
             if first_token_only:
-                return "".join(text_parts), ttft, usage, False
+                return StreamResult(
+                    text="".join(text_parts),
+                    ttft_s=ttft,
+                    usage=usage,
+                    completed=False,
+                    e2e_s=time.monotonic() - start,
+                    chunk_offsets_s=chunk_offsets,
+                )
         if done:
             completed = True
             break
+    e2e = time.monotonic() - start
     if ttft is None:
-        ttft = time.monotonic() - start
-    return "".join(text_parts), ttft, usage, completed
+        ttft = e2e
+    return StreamResult(
+        text="".join(text_parts),
+        ttft_s=ttft,
+        usage=usage,
+        completed=completed,
+        e2e_s=e2e,
+        chunk_offsets_s=chunk_offsets,
+    )
+
+
+def stream_timing_stats(chunk_offsets_s: list[float], completion_tokens: int) -> dict:
+    """Derive TPOT / inter-token-latency / generation-duration stats.
+
+    Returns dict with generation_s, tpot_s, itl_avg_ms, itl_p50_ms, itl_p95_ms,
+    itl_max_ms (all None-safe). ITL is measured per SSE content chunk — a chunk
+    may carry multiple tokens, so this is chunk cadence, not strict per-token.
+    """
+    out = {
+        "generation_s": None,
+        "tpot_s": None,
+        "itl_avg_ms": None,
+        "itl_p50_ms": None,
+        "itl_p95_ms": None,
+        "itl_max_ms": None,
+        "chunks": len(chunk_offsets_s),
+    }
+    offs = chunk_offsets_s
+    if len(offs) < 2:
+        return out
+    generation_s = offs[-1] - offs[0]
+    out["generation_s"] = generation_s
+    itls = [b - a for a, b in pairwise(offs)]
+    itls_ms = sorted(i * 1000.0 for i in itls)
+    n = len(itls_ms)
+    out["itl_avg_ms"] = sum(itls_ms) / n
+    out["itl_p50_ms"] = itls_ms[int(n * 0.50)]
+    out["itl_p95_ms"] = itls_ms[min(int(n * 0.95), n - 1)]
+    out["itl_max_ms"] = itls_ms[-1]
+    # TPOT: mean seconds per output token across the generation window
+    denom = max(completion_tokens - 1, 1) if completion_tokens else max(len(offs) - 1, 1)
+    out["tpot_s"] = generation_s / denom
+    return out
 
 
 def openai_sse_extractor(payload: str):

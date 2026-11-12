@@ -48,6 +48,7 @@ class LlmApiLayer:
                 "request_template": t.request_template,
                 "response_mapping": t.response_mapping,
                 "headers": t.tags.get("headers", {}),
+                "retry": {"max_retries": t.retries, "backoff_s": t.retry_backoff_s},
             },
         )
         model = params.get("model") or params.get("model_id")
@@ -59,7 +60,14 @@ class LlmApiLayer:
             if err:
                 from ..metrics import log_request_event, record_error
 
-                record_error(scenario_name, t.provider, str(err), e2e)
+                record_error(
+                    scenario_name,
+                    t.provider,
+                    str(err),
+                    e2e,
+                    timed_out=resp.timed_out,
+                    retries=resp.retries,
+                )
                 log_request_event(scenario_name, e2e * 1000, exception=str(err))
                 span.set_attribute("error", True)
                 span.set_attribute("llm_perf.error", str(err)[:500])

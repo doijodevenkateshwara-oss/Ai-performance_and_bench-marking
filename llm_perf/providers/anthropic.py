@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from .base import NormalizedResponse, RequestSpec
-from .http_common import anthropic_sse_extractor, auth_headers, stream_sse
+from .http_common import anthropic_sse_extractor, auth_headers, stream_sse, stream_timing_stats
 
 
 class AnthropicAdapter:
@@ -40,13 +40,22 @@ class AnthropicAdapter:
     ) -> NormalizedResponse:
         if stream_iter is not None:
             # Anthropic SSE includes `event:` lines; stream_sse skips non-"data:" lines.
-            text, ttft, usage, _completed = stream_sse(
+            sr = stream_sse(
                 stream_iter, anthropic_sse_extractor, first_token_only=(stream_mode == "first_token")
             )
-            p = int((usage or {}).get("input_tokens") or 0)
-            c = int((usage or {}).get("output_tokens") or 0)
+            p = int((sr.usage or {}).get("input_tokens") or 0)
+            c = int((sr.usage or {}).get("output_tokens") or 0)
+            timing = stream_timing_stats(sr.chunk_offsets_s, c)
             return NormalizedResponse(
-                text=text, prompt_tokens=p, completion_tokens=c, total_tokens=p + c, ttft_s=ttft, raw=usage
+                text=sr.text,
+                prompt_tokens=p,
+                completion_tokens=c,
+                total_tokens=p + c,
+                ttft_s=sr.ttft_s,
+                tpot_s=timing["tpot_s"],
+                generation_s=timing["generation_s"],
+                stream_stats=timing,
+                raw=sr.usage,
             )
         try:
             obj = json.loads(body)

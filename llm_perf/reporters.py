@@ -21,6 +21,14 @@ _METHOD_LABELS = {
     "PROMPT_TOKENS": "prompt_tokens",
     "COMPLETION_TOKENS": "completion_tokens",
     "TOKENS_PER_SEC": "tokens_per_sec",
+    "INPUT_TOKENS_PER_SEC": "input_tokens_per_sec",
+    "TPOT": "tpot_ms",
+    "GEN_DURATION": "gen_duration_ms",
+    "ITL_AVG": "itl_avg_ms",
+    "ITL_P95": "itl_p95_ms",
+    "QUEUE_WAIT": "queue_wait_ms",
+    "RETRIES": "retries",
+    "TIMEOUTS": "timeouts",
     "QUALITY_SCORE": "quality_score_x1000",
     "CONTEXT_RECALL": "context_recall_x1000",
 }
@@ -104,6 +112,26 @@ def aggregate(
         sc["total_tokens"] = int(toks.get("requests", 0) or 0)
         tps = sc["methods"].get("TOKENS_PER_SEC", {})
         sc["tokens_per_sec_avg"] = tps.get("avg_ms")
+        itps = sc["methods"].get("INPUT_TOKENS_PER_SEC", {})
+        sc["input_tokens_per_sec_avg"] = itps.get("avg_ms")
+        for src, dst in (
+            ("TPOT", "tpot"),
+            ("GEN_DURATION", "gen_duration"),
+            ("ITL_AVG", "itl_avg"),
+            ("ITL_P95", "itl_p95"),
+            ("QUEUE_WAIT", "queue_wait"),
+        ):
+            m = sc["methods"].get(src, {})
+            sc[f"{dst}_avg_ms"] = m.get("avg_ms")
+            sc[f"{dst}_p95_ms"] = m.get("p95")
+        ret = sc["methods"].get("RETRIES", {})
+        sc["retries_total"] = (ret.get("avg_ms") or 0.0) * (ret.get("requests") or 0)
+        sc["retries_avg"] = ret.get("avg_ms")
+        tmo = sc["methods"].get("TIMEOUTS", {})
+        sc["timeouts"] = int(tmo.get("requests") or 0)
+        cost = sc.get("cost_usd")
+        successes = max(n - (req.get("failures") or 0), 1) if n else 0
+        sc["cost_per_success_usd"] = (cost / successes) if cost and successes else None
         q = sc["methods"].get("QUALITY_SCORE", {})
         if q.get("requests"):
             sc["quality_score_avg"] = round((q.get("avg_ms") or 0) / 1000.0, 4)
@@ -173,11 +201,19 @@ def write_reports(
                     "p99_ms": sc.get("p99_ms"),
                     "rps": sc.get("rps"),
                     "ttft_p95_ms": sc.get("ttft_p95_ms"),
+                    "tpot_p95_ms": sc.get("tpot_p95_ms"),
+                    "gen_duration_p95_ms": sc.get("gen_duration_p95_ms"),
+                    "itl_p95_ms": sc.get("itl_p95_ms"),
+                    "queue_wait_p95_ms": sc.get("queue_wait_p95_ms"),
+                    "input_tokens_per_sec_avg": sc.get("input_tokens_per_sec_avg"),
+                    "retries_total": sc.get("retries_total"),
+                    "timeouts": sc.get("timeouts"),
                     "total_tokens": sc.get("total_tokens"),
                     "tokens_per_sec_avg": sc.get("tokens_per_sec_avg"),
                     "quality_score_avg": sc.get("quality_score_avg"),
                     "context_recall_avg": sc.get("context_recall_avg"),
                     "cost_usd": sc.get("cost_usd"),
+                    "cost_per_success_usd": sc.get("cost_per_success_usd"),
                 }
             )
         if rows:

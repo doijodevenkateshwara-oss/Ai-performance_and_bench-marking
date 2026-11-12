@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from .base import NormalizedResponse, RequestSpec, usage_tokens
-from .http_common import auth_headers, openai_sse_extractor, stream_sse
+from .http_common import auth_headers, openai_sse_extractor, stream_sse, stream_timing_stats
 
 
 class OpenAIAdapter:
@@ -67,12 +67,21 @@ class OpenAIAdapter:
         self, status, headers, body, stream_iter=None, stream_mode: str = "full"
     ) -> NormalizedResponse:
         if stream_iter is not None:
-            text, ttft, usage, _completed = stream_sse(
+            sr = stream_sse(
                 stream_iter, openai_sse_extractor, first_token_only=(stream_mode == "first_token")
             )
-            p, c, t = usage_tokens(usage)
+            p, c, t = usage_tokens(sr.usage)
+            timing = stream_timing_stats(sr.chunk_offsets_s, c)
             return NormalizedResponse(
-                text=text, prompt_tokens=p, completion_tokens=c, total_tokens=t, ttft_s=ttft, raw=usage
+                text=sr.text,
+                prompt_tokens=p,
+                completion_tokens=c,
+                total_tokens=t,
+                ttft_s=sr.ttft_s,
+                tpot_s=timing["tpot_s"],
+                generation_s=timing["generation_s"],
+                stream_stats=timing,
+                raw=sr.usage,
             )
         try:
             obj = json.loads(body)

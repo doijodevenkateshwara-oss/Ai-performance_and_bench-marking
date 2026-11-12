@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import time
 
 from .config import PerfConfig, ScenarioConfig
 from .layers import LayerFactory
@@ -32,6 +33,7 @@ class RequestContext:
         layer = self.factory.layer(scenario.target)
         prompt, row = self.factory.prompt_and_row(layer, rng)
         params = dict(scenario.params)
+        params["_task_start"] = time.monotonic()  # queue-wait measurement origin
         if scenario.stream is not None:
             params["_stream"] = scenario.stream
         result = layer.run(prompt, row, params, scenario_name=scenario.name)

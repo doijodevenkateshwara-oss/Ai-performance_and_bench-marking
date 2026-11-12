@@ -96,10 +96,23 @@ def run(
         None, "--layers", help="comma-separated layers to run, e.g. llm_api,pipeline"
     ),
     scenarios: str | None = typer.Option(None, "--scenarios", help="comma-separated scenario names to run"),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="workload profile: smoke|baseline|load|stress|spike|soak|scalability|capacity|custom",
+    ),
+    ramp_up: str | None = typer.Option(None, "--ramp-up", help="ramp-up duration, e.g. 2m"),
+    ramp_down: str | None = typer.Option(None, "--ramp-down", help="ramp-down duration, e.g. 1m"),
 ):
     """Run a performance test."""
     cfg = _load_or_exit(config, skip_connectivity)
     _filter_config(cfg, layers, scenarios)
+    if profile:
+        cfg.load.profile = profile  # type: ignore[assignment]
+    if ramp_up:
+        cfg.load.ramp_up = ramp_up
+    if ramp_down:
+        cfg.load.ramp_down = ramp_down
     if no_alerts and cfg.thresholds:
         cfg.thresholds.alerts = []
     if users is not None:
@@ -118,12 +131,16 @@ def run(
 
     from locust.main import main as locust_main
 
-    args = ["-f", "llm_perf.locustfile"]
+    args = ["-f", "locustfile.py"]
     if headless or master or workers:
         args.append("--headless")
-    args += ["-u", str(cfg.load.users), "-r", str(cfg.load.spawn_rate)]
-    if cfg.load.duration:
-        args += ["-t", cfg.load.duration]
+    else:
+        args += ["--web-port", str(web_port)]
+    if not cfg.load.uses_shape:
+        # shape class controls users/spawn/duration when a profile is set
+        args += ["-u", str(cfg.load.users), "-r", str(cfg.load.spawn_rate)]
+        if cfg.load.duration:
+            args += ["-t", cfg.load.duration]
     if master:
         args += ["--master", "--master-bind-host", master]
     if workers:
@@ -131,10 +148,15 @@ def run(
     console.print(
         f"[cyan]Starting llm-perf[/cyan] config={config} "
         f"users={cfg.load.users} spawn={cfg.load.spawn_rate} "
+        f"profile={cfg.load.profile or '-'} "
         f"duration={cfg.load.duration or 'until stopped'}"
     )
+    # locust.main.main() takes no args — it parses sys.argv itself
+    import sys
+
+    sys.argv = ["locust", *args]
     try:
-        locust_main(args)
+        locust_main()
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else 0
         # check threshold failure flag via env set in locustfile
@@ -178,6 +200,43 @@ def quality_check(
     console.print(f"score={res.score} passed={res.passed} tags={res.failure_tags}")
     if res.judge_reason:
         console.print(f"judge: {res.judge_reason}")
+
+
+# ----------------------------- baseline commands -----------------------------
+
+baseline_app = typer.Typer(help="Manage run history baselines")
+app.add_typer(baseline_app, name="baseline")
+
+
+@baseline_app.command("mark")
+def baseline_mark(config: str = typer.Option(..., "-c", "--config")):
+    """Designate the latest recorded run as the comparison baseline."""
+    cfg = _load_or_exit(config, skip_connectivity=True)
+    from . import history
+
+    path = history.mark_baseline(cfg)
+    if not path:
+        console.print("[red]No run history found — run a test first[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Baseline marked:[/green] {path}")
+
+
+@baseline_app.command("list")
+def baseline_list(config: str = typer.Option(..., "-c", "--config"), limit: int = typer.Option(10, "-n")):
+    """List recorded runs in history (newest first)."""
+    cfg = _load_or_exit(config, skip_connectivity=True)
+    from . import history
+
+    runs = history.load_history(cfg, limit=limit)
+    if not runs:
+        console.print("[yellow]No run history yet[/yellow]")
+        return
+    for r in runs:
+        t = r.get("totals") or {}
+        console.print(
+            f"{r.get('generated_at')}  reqs={t.get('requests')}  "
+            f"err={t.get('error_rate', 0):.2%}  profile={(r.get('load') or {}).get('profile') or '-'}"
+        )
 
 
 # ----------------------------- dataset commands -----------------------------
