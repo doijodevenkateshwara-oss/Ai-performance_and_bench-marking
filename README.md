@@ -17,6 +17,16 @@ Plus: dataset-driven prompts, hybrid quality scoring (heuristics + LLM-as-judge
 + RAG recall), SLO thresholds with pass/fail gating and webhook alerts, OTel
 traces/metrics, end-of-run CSV/JSON/HTML reports, and a Grafana dashboard.
 
+## What it answers
+
+| Question | Where the answer comes from |
+|---|---|
+| **How fast is my AI application?** | TTFT, TPOT, inter-token latency, generation duration, end-to-end latency, and p50/p90/p95/p99 per scenario — in CSV/JSON/HTML reports, OTel metrics, and the Grafana dashboard |
+| **How many concurrent users can it support?** | Locust virtual users with configurable ramp-up / steady-state / ramp-down, RPS and peak-users tracking, `load`/`stress`/`spike`/`scalability`/`capacity` profiles — the `capacity` profile stops early when the error-rate ceiling breaks |
+| **How much does each request cost?** | `report.pricing` → per-scenario `cost_usd` and `cost_per_success_usd` in reports; `llm_perf.cost.USD` OTel counter; `max_cost` / `max_cost_per_success_usd` SLO rules |
+| **Is quality maintained under load?** | `quality.sample_rate` scores a sample of responses during the run — heuristic, LLM-judge, and RAG context-recall scores land beside performance metrics (`quality_score_avg`, `quality_pass_rate`, `context_recall_avg`); agent runs add task-success rate, tool-call correctness, and loop detection |
+| **Where is the bottleneck?** | `analysis.bottlenecks` in every report splits TTFT (prefill/queueing) from decode (TPOT/ITL), ranks per-stage pipeline latency, rolls up SLO pass/fail, and flags load-generator saturation (CPU/memory/event-loop lag warnings) so you can tell target problems from generator artifacts |
+
 ## Install
 
 ```bash
@@ -424,7 +434,7 @@ regenerate with `python scripts/screenshot_dashboard.py`):
 
 | Instrument | Type | Attributes |
 |---|---|---|
-| `llm_perf.request.duration` | histogram (s) | scenario, provider |
+| `llm_perf.request.duration` | histogram (s) | scenario, provider, target, stream, model |
 | `llm_perf.request.total` | counter | scenario, provider, result |
 | `llm_perf.ttft` | histogram (s) | scenario, provider |
 | `llm_perf.tpot` | histogram (s) | scenario, provider |

@@ -179,11 +179,22 @@ def request_span(
     if use_genai_semconv:
         span_attrs.setdefault("gen_ai.operation.name", "chat")
         span_attrs.setdefault("gen_ai.system", provider)
+    metric_attrs = {
+        "scenario": scenario,
+        "provider": provider,
+        "target": target,
+        "stream": stream,
+    }
+    if model:
+        metric_attrs["model"] = model
     with tracer.start_as_current_span("llm_perf.request", attributes=span_attrs) as span:
-        yield span
-        elapsed = time.monotonic() - start
-        span.set_attribute("llm_perf.duration_s", elapsed)
-        inst["request_duration"].record(elapsed, attrs)
+        try:
+            yield span
+        finally:
+            # single recorder for request duration — covers success and error paths
+            elapsed = time.monotonic() - start
+            span.set_attribute("llm_perf.duration_s", elapsed)
+            inst["request_duration"].record(elapsed, metric_attrs)
 
 
 def stage_span(name: str, scenario: str, **extra_attrs):
@@ -208,7 +219,7 @@ def record_response(
         attrs["model"] = model
 
     inst["request_total"].add(1, {**attrs, "result": "success"})
-    inst["request_duration"].record(e2e_s, attrs)
+    # request_duration is recorded once by request_span — do not duplicate here
     ss = resp.stream_stats or {}
     if resp.ttft_s is not None:
         inst["ttft"].record(resp.ttft_s, attrs)
@@ -271,8 +282,7 @@ def record_error(
 ):
     inst = instruments()
     inst["request_total"].add(1, {"scenario": scenario, "provider": provider, "result": "error"})
-    if e2e_s:
-        inst["request_duration"].record(e2e_s, {"scenario": scenario, "provider": provider})
+    # request_duration is recorded once by request_span — do not duplicate here
     stats = _locust_stats()
     if retries:
         record_metric(scenario, "retries", float(retries))
