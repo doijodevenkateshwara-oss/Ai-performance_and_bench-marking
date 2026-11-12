@@ -22,7 +22,5 @@ Dashboard screenshots live in [screenshots/](screenshots/):
 | `screenshots/jaeger-trace.png` | Jaeger — individual trace detail (span waterfall) |
 | `screenshots/locust-ui.png` | Locust live UI during a run |
 
-Regenerate the Docker-stack shots with
-`.venv/bin/python scripts/screenshot_dashboards.py` (stack must be running via
-`docker compose up -d`) and the Locust shot with
-`.venv/bin/python scripts/screenshot_dashboard.py`. See [demo.md](demo.md).
+These are committed captures of a live demo run (see [demo.md](demo.md) to
+reproduce the stack and generate fresh ones).

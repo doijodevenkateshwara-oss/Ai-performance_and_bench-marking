@@ -406,8 +406,7 @@ Everything you need at a glance while a run is live or after it finishes:
 | Prometheus | http://localhost:9090 | raw `llm_perf_*` metrics scraped from the collector |
 | Jaeger | http://localhost:16686 | distributed traces — one trace per request with per-stage spans |
 
-Live Locust UI during a run (screenshot taken against the bundled mock server —
-regenerate with `python scripts/screenshot_dashboard.py`):
+Live Locust UI during a run (captured against a local mock server):
 
 ![Locust live dashboard](docs/screenshots/locust-ui.png)
 
@@ -528,8 +527,7 @@ streaming metrics are unreliable, and how to shard with
 
 `docs/sample-results/` contains a real generated run (mock streaming
 OpenAI server + `smoke` profile) — see the HTML for the executive summary,
-bottleneck analysis, SLO rollup, cost and resource sections. Regenerate
-with `python scripts/generate_sample_results.py`.
+bottleneck analysis, SLO rollup, cost and resource sections.
 
 ## gRPC & proto workflow
 

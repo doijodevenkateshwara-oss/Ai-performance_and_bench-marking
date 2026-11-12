@@ -16,8 +16,8 @@ Every run writes files named `llm-perf-<timestamp>.{csv,json,html}` into
 
 ## Sample results
 
-`docs/sample-results/` contains a real generated run produced by
-`scripts/generate_sample_results.py` against a mock OpenAI streaming server.
+`docs/sample-results/` contains a real generated run against a mock OpenAI
+streaming server (no credentials required).
 
 Example JSON highlights (`llm-perf-20261112-185115.json`):
 
@@ -37,12 +37,6 @@ Example JSON highlights (`llm-perf-20261112-185115.json`):
 - **Quality**: no quality rules configured → `null`
 - **Analysis verdict**: `PASS`; bottleneck flagged as `decode_bound` (generation p95 dominates e2e)
 - **Resources**: load generator CPU avg 17.8%, mem max 27.2%, scheduler lag p95 1.04 ms — healthy
-
-Regenerate or extend these results with:
-
-```bash
-python scripts/generate_sample_results.py
-```
 
 ## Key metrics
 

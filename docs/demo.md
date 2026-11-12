@@ -67,10 +67,9 @@ config (this is the default in the example configs).
 
 ### Option A — mock server (no API keys, no cost)
 
-`generate_sample_results.py` runs a real headless Locust test against an
-embedded mock OpenAI server, but with OTel disabled. For a dashboard demo,
-use a config with OTel enabled. Example config
-(`configs/demo_otel.yaml`):
+For a no-cost demo, run against a local mock OpenAI-compatible server. Any
+config with `observability.otel.enabled: true` and `stream: true` works —
+example (`configs/demo_otel.yaml`):
 
 ```yaml
 observability:

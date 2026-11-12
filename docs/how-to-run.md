@@ -156,31 +156,22 @@ To run without telemetry, set `observability.otel.enabled: false` in the config.
 
 ## Dashboard screenshots
 
-The live Locust UI screenshot is stored at:
+Committed screenshots of every dashboard live in `docs/screenshots/`:
 
-```
-docs/screenshots/locust-ui.png
-```
+- `grafana-llm-perf.png` — Grafana LLM Performance & Quality dashboard
+- `prometheus-graph.png` / `prometheus-targets.png` — Prometheus graph and targets
+- `jaeger-search.png` / `jaeger-trace.png` — Jaeger trace search and detail
+- `locust-ui.png` — Locust live UI during a run
 
-Regenerate it with:
+See [demo.md](demo.md) for the full walkthrough that produced them.
 
-```bash
-python scripts/screenshot_dashboard.py
-```
+## Sample results without real credentials
 
-The script starts a mock OpenAI server, launches Locust with the web UI,
-drives a small swarm, waits for stats to accumulate, and captures the page with
-Playwright.
-
-## Generate sample results without real credentials
-
-```bash
-python scripts/generate_sample_results.py
-```
-
-This starts a local mock OpenAI streaming server, runs a `smoke` profile for
-~30 s, and writes CSV/JSON/HTML reports into `docs/sample-results/`. Use it to
-sanity-check the install and to see the full report shape without API keys.
+`docs/sample-results/` contains committed CSV/JSON/HTML reports from a real
+headless run against a local mock OpenAI streaming server using a `smoke`
+profile — use them to see the full report shape (executive summary,
+bottleneck analysis, SLO rollup, resource utilization, cost) without API
+keys.
 
 ## CI usage
 
