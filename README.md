@@ -40,7 +40,7 @@ llm-perf validate -c configs/openai_example.yaml
 llm-perf run -c configs/openai_example.yaml --headless -u 10 -t 2m
 
 # or use the standard locust CLI directly (web UI on :8089)
-LLM_PERF_CONFIG=configs/openai_example.yaml locust -f llm_perf.locustfile
+LLM_PERF_CONFIG=configs/openai_example.yaml locust -f locustfile.py
 ```
 
 Reports land in `report.output_dir` (CSV/JSON/HTML). Threshold failures exit
@@ -323,6 +323,56 @@ Point `observability.otel.endpoint` at any OTLP backend (default
 `otel-collector-config.yaml` ships a working pipeline: OTLP in →
 Prometheus exporter + Jaeger exporter.
 
+## Dashboards, metrics & UI
+
+Everything you need at a glance while a run is live or after it finishes:
+
+| UI | URL | Shows |
+|---|---|---|
+| Locust web UI | http://localhost:8089 | live RPS, latency percentiles, failures, per-scenario custom stats (TTFT, tokens, quality) |
+| Grafana | http://localhost:3000 | provisioned **llm-perf** dashboard — OTel metrics: request rate, TTFT, tokens/sec, stage latency, quality, cost, threshold gauges |
+| Prometheus | http://localhost:9090 | raw `llm_perf_*` metrics scraped from the collector |
+| Jaeger | http://localhost:16686 | distributed traces — one trace per request with per-stage spans |
+
+Live Locust UI during a run (screenshot taken against the bundled mock server —
+regenerate with `python scripts/screenshot_dashboard.py`):
+
+![Locust live dashboard](docs/screenshots/locust-ui.png)
+
+### Metrics catalog
+
+**Locust request stats** (per scenario, shown in the UI and CSV/JSON reports):
+
+| Stat | Meaning |
+|---|---|
+| `POST` / scenario name | request count, failures, RPS, avg + p50/p90/p95/p99 latency |
+| `TTFT` | time-to-first-token in ms (streaming targets) |
+| `TOKENS` / `PROMPT_TOKENS` / `COMPLETION_TOKENS` | token counts |
+| `TOKENS_PER_SEC` | decode throughput (×100 scaling) |
+| `QUALITY_SCORE` | quality score ×1000 (0–1000) |
+| `CONTEXT_RECALL` | RAG context recall ×1000 |
+
+**OTel metrics** (exported via OTLP → Prometheus/Grafana):
+
+| Instrument | Type | Attributes |
+|---|---|---|
+| `llm_perf.request.duration` | histogram (s) | scenario, provider |
+| `llm_perf.request.total` | counter | scenario, provider, result |
+| `llm_perf.ttft` | histogram (s) | scenario, provider |
+| `llm_perf.tokens` | counter | scenario, kind=input/output |
+| `llm_perf.tokens_per_second` | gauge | scenario, provider |
+| `llm_perf.users` | up-down counter | — |
+| `llm_perf.stage.duration` | histogram (s) | scenario, stage |
+| `llm_perf.quality.score` / `quality.pass` | histogram / counter | scenario, check |
+| `llm_perf.rag.context_recall` | histogram | scenario |
+| `llm_perf.cost.USD` | counter | scenario |
+| `llm_perf.threshold.pass` | gauge (0/1) | rule — live SLO state for alerting |
+
+**Traces**: one root span per request (`llm_perf.request`) plus child spans per
+pipeline stage (`retrieve`, `rerank`, `generate`, `agent_step`, `agent_tool`)
+with GenAI semantic-convention attributes (`gen_ai.usage.*`, model, finish
+reason).
+
 ## Reports
 
 End-of-run reports in `report.output_dir`:
@@ -378,7 +428,9 @@ adjust to your service's schema.
 ## Project layout
 
 ```
+locustfile.py      # root shim so `locust -f locustfile.py` works
 llm_perf/
+  locustfile.py     # package entry (imported by root locustfile.py shim)
   config.py        # pydantic config schema (targets/scenarios/datasets/load/...)
   cli.py           # typer CLI (run/validate/proto-gen/quality-check/dataset)
   locustfile.py    # locust entry (generated users + lifecycle hooks)

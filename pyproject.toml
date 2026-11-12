@@ -29,6 +29,7 @@ dev = [
     "respx>=0.21",
     "ruff>=0.5",
     "black>=24.0",
+    "playwright>=1.40",
 ]
 s3 = ["boto3"]
 gcs = ["gcsfs>=2024.1"]
