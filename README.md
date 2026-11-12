@@ -501,6 +501,25 @@ percentage (`report.regression.thresholds_pct`, with sensible defaults for
 p95/p99/TTFT/TPOT/ITL/gen-duration/error-rate/cost/quality/tokens-s/RPS);
 `on_fail: fail` turns regressions into a CI gate.
 
+## Concurrency model & timing accuracy
+
+Locust runs each virtual user as a **gevent greenlet** — all provider calls
+yield on I/O, so hundreds of users share one OS thread. Streaming chunk
+timestamps (TTFT/TPOT/ITL) are wall-clock but *scheduling-inclusive*: a busy
+event loop inflates them. The report includes a **scheduler-lag probe** and
+CPU/memory samples of the load generator; high lag or saturation triggers
+**generator-health warnings** in the HTML report. See
+[docs/methodology.md](docs/methodology.md) for metric definitions, when
+streaming metrics are unreliable, and how to shard with
+`locust --master/--worker`.
+
+## Sample results & methodology
+
+`docs/sample-results/` contains a real generated run (mock streaming
+OpenAI server + `smoke` profile) — see the HTML for the executive summary,
+bottleneck analysis, SLO rollup, cost and resource sections. Regenerate
+with `python scripts/generate_sample_results.py`.
+
 ## gRPC & proto workflow
 
 1. Put your `.proto` somewhere reachable, e.g. `protos/my_service.proto`.
@@ -541,10 +560,9 @@ adjust to your service's schema.
 ```
 locustfile.py      # root shim so `locust -f locustfile.py` works
 llm_perf/
-  locustfile.py     # package entry (imported by root locustfile.py shim)
+  locustfile.py    # locust entry (generated users + shape + lifecycle hooks)
   config.py        # pydantic config schema (targets/scenarios/datasets/load/...)
-  cli.py           # typer CLI (run/validate/proto-gen/quality-check/dataset)
-  locustfile.py    # locust entry (generated users + lifecycle hooks)
+  cli.py           # typer CLI (run/validate/proto-gen/quality-check/dataset/baseline)
   scenarios.py     # weighted User/TaskSet generation
   tasks.py         # per-request pipeline + quality hook
   metrics.py       # OTel instruments + Locust stats bridge
