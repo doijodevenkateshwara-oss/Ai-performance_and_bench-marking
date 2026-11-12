@@ -6,7 +6,9 @@ the test runs against a local mock OpenAI server.
 
 ## 1. Start the observability stack
 
-The stack is defined in `docker-compose.yml` and consists of four services:
+The stack is defined in `deployments/docker/docker-compose.yml` (the root
+`docker-compose.yml` is an `include:` shim, so plain `docker compose` commands
+work from the repo root) and consists of four services:
 
 | Service         | Image                                    | Purpose                                        |
 | --------------- | ---------------------------------------- | ---------------------------------------------- |
@@ -30,14 +32,14 @@ docker compose ps
 Expected output (all `Up`):
 
 ```
-performance-testing-llm-ai-grafana-1          Up   0.0.0.0:3000->3000/tcp
-performance-testing-llm-ai-jaeger-1           Up   0.0.0.0:16686->16686/tcp
-performance-testing-llm-ai-otel-collector-1   Up   0.0.0.0:4317-4318->4317-4318/tcp, 0.0.0.0:8889->8889/tcp
-performance-testing-llm-ai-prometheus-1       Up   0.0.0.0:9090->9090/tcp
+llm-perf-grafana-1          Up   0.0.0.0:3000->3000/tcp
+llm-perf-jaeger-1           Up   0.0.0.0:16686->16686/tcp
+llm-perf-otel-collector-1   Up   0.0.0.0:4317-4318->4317-4318/tcp, 0.0.0.0:8889->8889/tcp
+llm-perf-prometheus-1       Up   0.0.0.0:9090->9090/tcp
 ```
 
 If `otel-collector` exits immediately, check its logs — the config lives in
-`otel-collector-config.yaml` (mounted into the container).
+`deployments/otel/collector-config.yaml` (mounted into the container).
 
 ```bash
 docker compose logs otel-collector
@@ -56,7 +58,7 @@ Once the stack is running, open:
 | **Locust UI**  | http://localhost:8089            | Live load-test stats — only while a Locust run is active               |
 
 Grafana needs no login setup: the compose file provisions the datasource and
-dashboard automatically (`grafana/provisioning/`). The default admin login is
+dashboard automatically (`deployments/grafana/provisioning/`). The default admin login is
 `admin` / `admin` if prompted.
 
 ## 3. Run a demo test that populates the dashboards

@@ -12,9 +12,10 @@ and observability assets. This page maps every file/directory to its role.
 | `locustfile.py` | Thin shim so the standard `locust -f locustfile.py` CLI can import the generated `User`/`LoadTestShape` classes from `llm_perf.locustfile` |
 | `.env.example` | Template for secrets (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY`, AWS creds, webhook URLs) |
 | `.gitignore` | Ignores `.venv/`, `__pycache__/`, `.env`, caches, `*.egg-info/` |
-| `docker-compose.yml` | Local observability stack: OTel collector, Prometheus, Jaeger, Grafana |
-| `prometheus.yml` | Prometheus scrape config — pulls `llm_perf_*` metrics from the OTel collector on `:8889` |
-| `otel-collector-config.yaml` | OTel Collector config: OTLP gRPC/HTTP in → Prometheus exporter + Jaeger exporter |
+| `docker-compose.yml` | Root shim (`include:`) so `docker compose up -d` works from the repo root |
+| `deployments/docker/docker-compose.yml` | Local observability stack: OTel collector, Prometheus, Jaeger, Grafana |
+| `deployments/prometheus/prometheus.yml` | Prometheus scrape config — pulls `llm_perf_*` metrics from the OTel collector on `:8889` |
+| `deployments/otel/collector-config.yaml` | OTel Collector config: OTLP gRPC/HTTP in → Prometheus exporter + Jaeger exporter |
 
 ## `llm_perf/` package
 
@@ -143,9 +144,9 @@ and observability assets. This page maps every file/directory to its role.
 
 | Path | Purpose |
 |---|---|
-| `grafana/llm-perf-dashboard.json` | Provisioned Grafana dashboard: request rate, error rate, e2e latency percentiles, TTFT, tokens/sec, quality, active users, cost, stage latency, threshold status |
-| `grafana/provisioning/datasources/prometheus.yml` | Grafana datasource pointing at Prometheus |
-| `grafana/provisioning/dashboards/dashboards.yml` | Grafana dashboard provider config |
+| `deployments/grafana/dashboards/llm-perf-dashboard.json` | Provisioned Grafana dashboard: request rate, error rate, e2e latency percentiles, TTFT, tokens/sec, quality, active users, cost, stage latency, threshold status |
+| `deployments/grafana/provisioning/datasources/prometheus.yml` | Grafana datasource pointing at Prometheus |
+| `deployments/grafana/provisioning/dashboards/dashboards.yml` | Grafana dashboard provider config |
 
 ## Generated output (not source)
 

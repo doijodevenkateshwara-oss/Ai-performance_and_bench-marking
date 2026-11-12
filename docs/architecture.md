@@ -106,10 +106,10 @@ shard with `--master/--worker`, bigger host).
 llm-perf process
    │ OTLP/gRPC (traces + metrics)
    ▼
-OTel Collector (otel-collector-config.yaml)
+OTel Collector (deployments/otel/collector-config.yaml)
    ├── Prometheus exporter → Prometheus (:8889 scrape → :9090)
    └── Jaeger exporter     → Jaeger UI (:16686)
-Grafana (:3000) ← provisioned dashboard (grafana/llm-perf-dashboard.json)
+Grafana (:3000) ← provisioned dashboard (deployments/grafana/dashboards/llm-perf-dashboard.json)
 ```
 
 - Traces: one root span per request plus child spans per pipeline stage/tool call.

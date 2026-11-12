@@ -136,10 +136,12 @@ llm-perf baseline mark -c configs/openai_example.yaml
 
 ## Observability stack (optional but recommended)
 
-Start the local collector + Prometheus + Jaeger + Grafana:
+Start the local collector + Prometheus + Jaeger + Grafana (stack lives in
+`deployments/`; the root `docker-compose.yml` is an `include:` shim):
 
 ```bash
 docker compose up -d
+# or explicitly: docker compose -f deployments/docker/docker-compose.yml up -d
 ```
 
 Then run a test with `observability.otel.enabled: true` (the example configs

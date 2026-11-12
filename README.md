@@ -421,8 +421,9 @@ docker compose up -d     # otel-collector + prometheus + jaeger + grafana
 
 Point `observability.otel.endpoint` at any OTLP backend (default
 `http://localhost:4317`); set `enabled: false` to run without telemetry.
-`otel-collector-config.yaml` ships a working pipeline: OTLP in →
-Prometheus exporter + Jaeger exporter.
+`deployments/otel/collector-config.yaml` ships a working pipeline: OTLP in →
+Prometheus exporter + Jaeger exporter. The stack lives under `deployments/`
+(`docker-compose.yml` at the root is an `include:` shim).
 
 ## Dashboards, metrics & UI
 
