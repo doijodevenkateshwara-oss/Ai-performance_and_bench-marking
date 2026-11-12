@@ -1,4 +1,7 @@
-"""Security policy tests: URL guards, redaction, python gate, dataset limits."""
+"""Security policy tests: URL guards, redaction, python gate, dataset limits.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -15,12 +18,14 @@ from llm_perf.security import UrlNotAllowed, check_url, python_execution_allowed
 
 @pytest.fixture(autouse=True)
 def _reset_policy():
+    """Reset the security policy singleton between tests."""
     security.reset_policy()
     yield
     security.reset_policy()
 
 
 def _policy(**kw) -> SecurityConfig:
+    """Build a SecurityConfig for tests."""
     return SecurityConfig(**kw)
 
 
@@ -30,12 +35,14 @@ def _policy(**kw) -> SecurityConfig:
 
 
 def test_default_policy_allows_http_and_localhost():
+    """Defaults permit http(s) and private hosts."""
     security.set_policy(_policy())
     check_url("http://localhost:8080/api")
     check_url("https://api.openai.com/v1/chat")
 
 
 def test_non_http_schemes_blocked():
+    """Non-http(s) schemes are always rejected."""
     security.set_policy(_policy())
     for url in ("file:///etc/passwd", "ftp://x/y", "gopher://x"):
         with pytest.raises(UrlNotAllowed):
@@ -43,6 +50,7 @@ def test_non_http_schemes_blocked():
 
 
 def test_allowlist_exact_and_suffix():
+    """Allowlist matches exact hosts and subdomains."""
     security.set_policy(_policy(url_allowlist=["api.example.com", "*.corp.internal"]))
     check_url("https://api.example.com/v1")
     check_url("https://x.corp.internal/hook")
@@ -53,9 +61,11 @@ def test_allowlist_exact_and_suffix():
 
 
 def test_private_networks_blocked_when_disabled(monkeypatch):
+    """allow_private_networks=false blocks RFC1918/loopback."""
     security.set_policy(_policy(allow_private_networks=False))
 
     def fake_gai(host, port, *a, **kw):
+        """Patch getaddrinfo to return private addresses."""
         return [(None, None, None, None, ("127.0.0.1", port))]
 
     monkeypatch.setattr(security.socket, "getaddrinfo", fake_gai)
@@ -63,6 +73,7 @@ def test_private_networks_blocked_when_disabled(monkeypatch):
         check_url("http://internal.corp.local/metrics")
 
     def fake_gai_public(host, port, *a, **kw):
+        """Patch getaddrinfo to return a public address."""
         return [(None, None, None, None, ("93.184.216.34", port))]
 
     monkeypatch.setattr(security.socket, "getaddrinfo", fake_gai_public)
@@ -70,15 +81,18 @@ def test_private_networks_blocked_when_disabled(monkeypatch):
 
 
 def test_private_networks_allowed_by_default():
+    """Default policy allows private addresses."""
     security.set_policy(_policy())
     check_url("http://localhost:9090/metrics")
     check_url("http://169.254.169.254/latest/meta-data")  # default: permitted
 
 
 def test_unresolvable_host_allowed_when_private_blocked(monkeypatch):
+    """DNS failures defer to the HTTP client error."""
     security.set_policy(_policy(allow_private_networks=False))
 
     def boom(host, port, *a, **kw):
+        """Always-failing tool callable."""
         raise security.socket.gaierror("no such host")
 
     monkeypatch.setattr(security.socket, "getaddrinfo", boom)
@@ -91,6 +105,7 @@ def test_unresolvable_host_allowed_when_private_blocked(monkeypatch):
 
 
 def test_redact_bearer_and_params():
+    """Bearer tokens and key=value secrets are scrubbed."""
     security.set_policy(_policy())
     out = redact_secrets("GET /x Authorization: Bearer abcdef1234567890 ok api_key=sk-live-999")
     assert "abcdef1234567890" not in out
@@ -99,6 +114,7 @@ def test_redact_bearer_and_params():
 
 
 def test_redact_url_userinfo_and_tokens():
+    """URL userinfo and known token shapes are scrubbed."""
     security.set_policy(_policy())
     out = redact_secrets("https://user:passw0rd@host/path ghp_" + "a" * 30 + " sk-" + "b" * 20)
     assert "passw0rd" not in out
@@ -107,6 +123,7 @@ def test_redact_url_userinfo_and_tokens():
 
 
 def test_redact_disabled_by_policy():
+    """redact=false returns text unchanged."""
     security.set_policy(_policy(redact=False))
     s = "api_key=supersecretvalue"
     assert redact_secrets(s) == s
@@ -118,6 +135,7 @@ def test_redact_disabled_by_policy():
 
 
 def test_python_execution_modes(capsys):
+    """python_execution off blocks, warn allows once."""
     security.set_policy(_policy(python_execution="off"))
     assert python_execution_allowed("test") is False
 
@@ -138,6 +156,7 @@ def test_python_execution_modes(capsys):
 
 
 def test_dataset_max_bytes(tmp_path):
+    """Oversized datasets raise a clear error."""
     from llm_perf.datasets import _read_text
 
     f = tmp_path / "big.jsonl"
@@ -148,6 +167,7 @@ def test_dataset_max_bytes(tmp_path):
 
 
 def test_dataset_max_rows(tmp_path):
+    """Datasets exceeding max_rows raise a clear error."""
     from llm_perf.datasets import _read_rows
 
     f = tmp_path / "rows.jsonl"
@@ -161,7 +181,10 @@ def test_dataset_http_fetch_and_limits():
     """HTTP dataset source: allowlist blocks, size cap enforced."""
 
     class H(BaseHTTPRequestHandler):
+        """Stub HTTP handler returning a redirect."""
+
         def do_GET(self):
+            """Respond 302 to an internal address."""
             body = b"x" * 200
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
@@ -169,7 +192,7 @@ def test_dataset_http_fetch_and_limits():
             self.wfile.write(body)
 
         def log_message(self, *a):
-            pass
+            """Silence handler logging."""
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -196,6 +219,7 @@ def test_dataset_http_fetch_and_limits():
 
 
 def test_agent_http_tool_blocked_by_allowlist():
+    """Agent http tools respect the URL policy."""
     from llm_perf.pipelines.engine import _execute_tool
 
     security.set_policy(_policy(url_allowlist=["allowed.example.com"]))
@@ -206,6 +230,7 @@ def test_agent_http_tool_blocked_by_allowlist():
 
 
 def test_agent_function_tool_blocked_when_off():
+    """Function tools are blocked when python_execution=off."""
     from llm_perf.pipelines.engine import _execute_tool
 
     security.set_policy(_policy(python_execution="off"))
@@ -221,6 +246,7 @@ def test_agent_function_tool_blocked_when_off():
 
 
 def test_audit_config_detects_powerful_features(capsys):
+    """audit_config lists http tools and python imports."""
     from types import SimpleNamespace
 
     from llm_perf.security import audit_config, warn_untrusted

@@ -1,4 +1,7 @@
-"""Dataset loading, sampling, and templating for prompts."""
+"""Dataset loading, sampling, and templating for prompts.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -18,6 +21,7 @@ class Dataset:
     """Loaded + sampled dataset of prompt rows."""
 
     def __init__(self, name: str, rows: list[dict], config: DatasetConfig):
+        """Dataset(name, rows, config): rows are dicts, vars are {var} pools."""
         self.name = name
         self.rows = rows
         self.config = config
@@ -27,6 +31,7 @@ class Dataset:
 
     @classmethod
     def load(cls, name: str, cfg: DatasetConfig) -> Dataset:
+        """Load + column-map + sample a dataset from its config."""
         fmt = cfg.format or _detect_format(cfg.source)
         rows = _read_rows(cfg.source, fmt)
         rows = [_map_columns(r, cfg.columns) for r in rows]
@@ -36,6 +41,7 @@ class Dataset:
     # -- iteration -------------------------------------------------------
 
     def __len__(self) -> int:
+        """Number of loaded rows."""
         return len(self.rows)
 
     def sample(self, rng: random.Random) -> dict:
@@ -64,6 +70,7 @@ class Dataset:
 
 
 def _detect_format(source: str) -> str:
+    """Guess dataset format from the source path/URL extension."""
     s = source.split("?", maxsplit=1)[0].lower()
     if s.endswith((".jsonl", ".ndjson")):
         return "jsonl"
@@ -78,6 +85,7 @@ def _detect_format(source: str) -> str:
 
 
 def _read_rows(source: str, fmt: str) -> list[dict]:
+    """Load dataset rows as dicts, enforcing row-count limits."""
     from .security import get_policy
 
     max_rows = get_policy().dataset_max_rows
@@ -110,12 +118,14 @@ def _read_rows(source: str, fmt: str) -> list[dict]:
 
 
 def _read_text(source: str) -> str:
-    from .security import check_url, get_policy
+    """Read a dataset source (local/http/s3/gs) with byte + timeout caps."""
+    from .security import check_url, checked_urlopen, get_policy
 
     pol = get_policy()
     max_bytes = pol.dataset_max_bytes
 
     def _cap(data: bytes, origin: str) -> str:
+        """Decode bytes to text, enforcing the dataset byte cap."""
         if len(data) > max_bytes:
             raise ValueError(f"dataset {origin!r} exceeds security.dataset_max_bytes={max_bytes}")
         return data.decode("utf-8")
@@ -123,7 +133,8 @@ def _read_text(source: str) -> str:
     if source.startswith(("http://", "https://")):
         check_url(source)
         req = urllib.request.Request(source, headers={"User-Agent": "llm-perf"})
-        with urllib.request.urlopen(req, timeout=pol.dataset_timeout_s) as r:
+        # checked opener re-validates redirect targets against the URL policy
+        with checked_urlopen(req, timeout=pol.dataset_timeout_s) as r:
             return _cap(r.read(max_bytes + 1), source)
     if source.startswith("s3://"):
         import boto3
@@ -154,6 +165,7 @@ def _map_columns(row: dict, columns: dict[str, str]) -> dict:
 
 
 def _apply_sample(rows: list[dict], sample: DatasetSample | None) -> list[dict]:
+    """Apply first/random/weighted subsampling to loaded rows."""
     if not sample:
         return rows
     if sample.strategy == "first" and sample.count:
@@ -166,7 +178,6 @@ def _apply_sample(rows: list[dict], sample: DatasetSample | None) -> list[dict]:
             pool = pool[: sample.count]
     elif sample.strategy == "weighted" and sample.weights:
         # weight by a row field: weights maps field-value -> weight
-        next(iter(sample.weights)) if sample.weights else None
         # allow weights keyed by column name with nested dict, else treat keys as values of 'category'/'tag'/'label'
         field = _guess_weight_field(rows, sample.weights)
         weighted = []
@@ -181,6 +192,7 @@ def _apply_sample(rows: list[dict], sample: DatasetSample | None) -> list[dict]:
 
 
 def _guess_weight_field(rows: list[dict], weights: dict) -> str:
+    """Find the row field whose values match the weight keys."""
     keys = set(weights)
     for field in ("category", "tag", "label", "type", "class"):
         if any(str(r.get(field, "")) in keys for r in rows[:50]):
@@ -194,9 +206,11 @@ def _guess_weight_field(rows: list[dict], weights: dict) -> str:
 
 
 def _render_template(template: str, row: dict, vars_: dict, rng: random.Random) -> str:
+    """Fill {var} placeholders in a string from row/vars pools."""
     import re
 
     def repl(m):
+        """Template replacer: row field -> vars pool -> leave placeholder."""
         key = m.group(1).strip()
         if key in row:
             return str(row[key])
@@ -248,6 +262,7 @@ def import_traces(path: str, fmt: str = "jsonl", mapping: dict | None = None) ->
 
 
 def _dig(obj, path: str):
+    """Dotted-path getter supporting dict keys and list indices."""
     cur = obj
     for part in str(path).split("."):
         if cur is None:
@@ -262,6 +277,7 @@ def _dig(obj, path: str):
 
 
 def write_dataset(rows: list[dict], dest: str, fmt: str = "jsonl") -> None:
+    """Write rows to a dataset file in jsonl/yaml/csv format."""
     Path(dest).parent.mkdir(parents=True, exist_ok=True)
     if fmt == "jsonl":
         Path(dest).write_text("\n".join(json.dumps(r) for r in rows))

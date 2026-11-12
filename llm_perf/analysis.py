@@ -3,6 +3,9 @@ baseline comparison, and regression detection.
 
 All functions operate on the aggregate report dict produced by reporters.aggregate
 (+ stages/resources/comparison sections added by the locustfile runner).
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -53,20 +56,32 @@ DEFAULT_REGRESSION_THRESHOLDS = {
 
 
 def _scenarios(report: dict) -> list[dict]:
+    """Return the report's scenario entries (empty list when absent)."""
     return report.get("scenarios") or []
 
 
+def _rule_state(r: dict) -> str:
+    """Normalize a serialized rule to pass | fail | not_evaluated."""
+    status = r.get("status")
+    if status in ("pass", "fail", "not_evaluated"):
+        return status
+    passed = r.get("passed")
+    if passed is True:
+        return "pass"
+    if passed is False:
+        return "fail"
+    return "not_evaluated"
+
+
 def slo_rollup(report: dict) -> dict:
-    """Pass/fail/skip counts for threshold rules."""
+    """Pass/fail/not_evaluated counts for threshold rules."""
     rules = ((report.get("thresholds") or {}).get("rules")) or []
-    counts = {"pass": 0, "fail": 0, "skip": 0}
+    counts = {"pass": 0, "fail": 0, "not_evaluated": 0, "skip": 0}
     for r in rules:
-        if r.get("passed") is True:
-            counts["pass"] += 1
-        elif r.get("passed") is False:
-            counts["fail"] += 1
-        else:
-            counts["skip"] += 1
+        state = _rule_state(r)
+        counts[state] += 1
+        if state == "not_evaluated":
+            counts["skip"] += 1  # backward-compatible alias
     counts["all_passed"] = counts["fail"] == 0
     return counts
 
@@ -89,6 +104,8 @@ def executive_summary(report: dict) -> dict:
         verdict = "WARN"
     elif not reqs:
         verdict = "NO DATA"
+    elif slo.get("not_evaluated"):
+        verdict = "INCOMPLETE"
 
     findings = []
     if head:
@@ -108,6 +125,8 @@ def executive_summary(report: dict) -> dict:
         findings.append(f"{slo['fail']} SLO rule(s) failed.")
     elif slo.get("pass"):
         findings.append(f"{slo['pass']} SLO rule(s) passed.")
+    if slo.get("not_evaluated"):
+        findings.append(f"{slo['not_evaluated']} SLO rule(s) could not be evaluated (no data).")
 
     return {
         "verdict": verdict,
@@ -200,14 +219,15 @@ def identify_bottlenecks(report: dict) -> list[dict]:
                     "detail": f"{retries} retries, {timeouts} timeouts over {reqs} requests",
                 }
             )
-        if qw and e2e and (sc.get("p95_ms") or 0) and qw / sc["p95_ms"] > 0.25:
+        p95 = sc.get("p95_ms") or 0
+        if qw and p95 and qw / p95 > 0.25:
             findings.append(
                 {
                     "type": "queueing",
                     "severity": "medium",
                     "scenario": sc.get("scenario"),
                     "detail": f"queue wait p95 {qw:.0f}ms is "
-                    f"{qw / sc['p95_ms'] * 100:.0f}% of e2e p95 — load-gen saturation?",
+                    f"{qw / p95 * 100:.0f}% of e2e p95 — load-gen saturation?",
                 }
             )
 
@@ -231,6 +251,7 @@ def compare_runs(current: dict, baseline: dict | None) -> dict | None:
     cur_scenarios = {s.get("scenario"): s for s in _scenarios(current)}
 
     def _delta(cur, base, higher_better):
+        """Compute current-vs-baseline delta with direction for one metric."""
         if cur is None or base in (None, 0):
             return None
         d = cur - base
@@ -277,6 +298,7 @@ def compare_runs(current: dict, baseline: dict | None) -> dict | None:
 
 
 def _agg_metric(scenarios, key: str):
+    """Aggregate a metric across scenarios (sum for counts, request-weighted mean otherwise)."""
     vals = [s.get(key) for s in scenarios if s.get(key) is not None]
     if not vals:
         return None
@@ -352,8 +374,10 @@ def detect_regressions(
 
 
 def _fmt(v) -> str:
+    """Format a number for display, 'n/a' for non-numeric."""
     return f"{v:.0f}" if isinstance(v, (int, float)) else "n/a"
 
 
 def _pct(v) -> str:
+    """Format a 0..1 ratio as a percentage string."""
     return f"{v * 100:.2f}%" if isinstance(v, (int, float)) else "n/a"

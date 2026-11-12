@@ -3,6 +3,9 @@
 Locust custom stats entries give us per-scenario aggregation for reports and
 threshold evaluation; OTel instruments feed traces/metrics export. Both are
 recorded from the same call sites.
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ _tracer = None
 
 
 def _get_tracer():
+    """Return the cached OTel tracer (created lazily)."""
     global _tracer
     if _tracer is None:
         _tracer = get_tracer()
@@ -36,6 +40,7 @@ def set_environment(env) -> None:
 
 
 def _locust_stats():
+    """Return the current Locust RequestStats or None outside a run."""
     return getattr(_CURRENT_ENV, "stats", None) if _CURRENT_ENV is not None else None
 
 
@@ -235,21 +240,21 @@ def record_response(
     if resp.queue_wait_s is not None:
         with suppress(AttributeError):
             inst["queue_wait"].record(resp.queue_wait_s, attrs)
+    # output tok/s over the generation window when known, else e2e - ttft
+    gen_s = resp.generation_s
+    if gen_s is None and resp.ttft_s is not None:
+        gen_s = max(e2e_s - resp.ttft_s, 0.001)
+    gen_s = gen_s if gen_s else max(e2e_s, 0.001)
+    tps = resp.completion_tokens / gen_s if resp.completion_tokens else 0.0
+    itps = resp.prompt_tokens / max(e2e_s, 0.001) if resp.prompt_tokens else 0.0
     if resp.prompt_tokens or resp.completion_tokens:
         if resp.prompt_tokens:
             inst["tokens"].add(resp.prompt_tokens, {**attrs, "kind": "input"})
         if resp.completion_tokens:
             inst["tokens"].add(resp.completion_tokens, {**attrs, "kind": "output"})
-        # output tok/s over the generation window when known, else e2e - ttft
-        gen_s = resp.generation_s
-        if gen_s is None and resp.ttft_s is not None:
-            gen_s = max(e2e_s - resp.ttft_s, 0.001)
-        gen_s = gen_s if gen_s else max(e2e_s, 0.001)
-        tps = resp.completion_tokens / gen_s if resp.completion_tokens else 0.0
         if tps:
             with suppress(AttributeError):
                 inst["tokens_per_second"].record(tps, attrs)
-        itps = resp.prompt_tokens / max(e2e_s, 0.001) if resp.prompt_tokens else 0.0
         if itps:
             with suppress(AttributeError):
                 inst["input_tokens_per_second"].record(itps, attrs)
@@ -264,8 +269,8 @@ def record_response(
         ttft_s=resp.ttft_s,
         prompt_tokens=resp.prompt_tokens,
         completion_tokens=resp.completion_tokens,
-        tokens_per_sec=(resp.completion_tokens / gen_s) if resp.completion_tokens else 0.0,
-        input_tokens_per_sec=(resp.prompt_tokens / max(e2e_s, 0.001)) if resp.prompt_tokens else 0.0,
+        tokens_per_sec=tps,
+        input_tokens_per_sec=itps,
         tpot_s=resp.tpot_s,
         generation_s=resp.generation_s,
         itl_avg_ms=ss.get("itl_avg_ms"),
@@ -284,6 +289,7 @@ def record_error(
     timed_out: bool = False,
     retries: int = 0,
 ):
+    """Record a failed request: OTel counter, Locust error entry, redacted stats."""
     inst = instruments()
     inst["request_total"].add(1, {"scenario": scenario, "provider": provider, "result": "error"})
     # request_duration is recorded once by request_span — do not duplicate here
@@ -316,6 +322,7 @@ def record_quality(
     check: str | None = None,
     context_recall: float | None = None,
 ):
+    """Record quality score / pass / context-recall samples."""
     inst = instruments()
     if score is not None:
         inst["quality_score"].record(score, {"scenario": scenario})
@@ -331,12 +338,14 @@ def record_quality(
 
 
 def record_stage(scenario: str, stage: str, duration_s: float, **attrs):
+    """Record one pipeline-stage or agent-step duration sample."""
     inst = instruments()
     inst["stage_duration"].record(duration_s, {"scenario": scenario, "stage": stage, **attrs})
     record_stage_sample(scenario, stage, duration_s)
 
 
 def record_cost(scenario: str, cost_usd: float):
+    """Accumulate estimated USD cost for a scenario."""
     if cost_usd:
         instruments()["cost"].add(cost_usd, {"scenario": scenario})
 
@@ -416,6 +425,7 @@ _PEAK_USERS = 0
 
 
 def record_users(delta: int):
+    """Adjust active-user count and the peak-users gauge."""
     global _CURRENT_USERS, _PEAK_USERS
     _CURRENT_USERS = max(_CURRENT_USERS + delta, 0)
     _PEAK_USERS = max(_PEAK_USERS, _CURRENT_USERS)
@@ -423,6 +433,7 @@ def record_users(delta: int):
 
 
 def peak_users() -> int:
+    """Return the peak concurrent virtual users seen this run."""
     return _PEAK_USERS
 
 
@@ -443,6 +454,7 @@ _STAGE_CAP = 20000
 
 
 def record_stage_sample(scenario: str, stage: str, duration_s: float):
+    """Store an exact stage-duration sample for reports/thresholds."""
     with _STAGE_LOCK:
         lst = _STAGE_SAMPLES[(scenario, stage)]
         if len(lst) < _STAGE_CAP:

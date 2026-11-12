@@ -1,4 +1,7 @@
-"""Declarative pipeline engine — executes retrieve/rerank/generate/agent stages."""
+"""Declarative pipeline engine — executes retrieve/rerank/generate/agent stages.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -12,6 +15,8 @@ from ..providers import RequestSpec, call_llm
 
 
 class StageContext:
+    """Mutable per-request state threaded through pipeline stages."""
+
     def __init__(
         self,
         question: str,
@@ -20,6 +25,7 @@ class StageContext:
         target_params: dict,
         pricing=None,
     ):
+        """StageContext(question, row, scenario, target_params, pricing)."""
         self.question = question
         self.row = row or {}
         self.scenario = scenario
@@ -31,10 +37,6 @@ class StageContext:
         self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
         self.stage_metrics: dict[str, float] = {}
         self.agent_eval: dict = {}  # populated by the agent stage
-
-
-def _llm_ref_params(llm: dict, default_provider: str = "openai") -> dict:
-    return llm or {}
 
 
 def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
@@ -74,12 +76,14 @@ def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
         ctx.output_text = resp.text
         ctx.usage["prompt_tokens"] += resp.prompt_tokens
         ctx.usage["completion_tokens"] += resp.completion_tokens
-        if (resp.raw or {}).get("error") if isinstance(resp.raw, dict) else False:
+        err = resp.raw.get("error") if isinstance(resp.raw, dict) else None
+        if err:
             ctx.output_text = ""
-            raise RuntimeError(f"generate stage failed: {resp.raw.get('error')}")
+            raise RuntimeError(f"generate stage failed: {err}")
 
 
 def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
+    """Execute the retrieve stage: fetch docs into ctx."""
     vs = stage.vector_store or {}
     vtype = vs.get("type", "http")
     top_k = stage.top_k
@@ -93,6 +97,7 @@ def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
 
 
 def _retrieve(vtype: str, cfg: dict, query: str, top_k: int) -> list[dict]:
+    """Dispatch to the configured vector-store backend."""
     if vtype == "http":
         return _retrieve_http(cfg, query, top_k)
     if vtype == "json":
@@ -103,20 +108,25 @@ def _retrieve(vtype: str, cfg: dict, query: str, top_k: int) -> list[dict]:
 
 
 def _retrieve_http(cfg: dict, query: str, top_k: int) -> list[dict]:
-    import requests
-
-    from ..security import check_url
+    """POST the query to an HTTP vector store; normalize doc list."""
+    from ..security import read_response_text, shared_checked_session
 
     url = cfg["url"]
-    check_url(url)
     body = {"query": query, "top_k": top_k, **cfg.get("params", {})}
     headers = dict(cfg.get("headers", {}))
     key_env = cfg.get("api_key_env")
     if key_env and os.environ.get(key_env):
         headers["Authorization"] = f"Bearer {os.environ[key_env]}"
-    resp = requests.post(url, json=body, headers=headers, timeout=cfg.get("timeout_s", 30))
+    # stream + capped read: the endpoint is untrusted, don't buffer unbounded
+    resp = shared_checked_session().post(
+        url,
+        json=body,
+        headers=headers,
+        timeout=cfg.get("timeout_s", 30),
+        stream=True,
+    )
     resp.raise_for_status()
-    data = resp.json()
+    data = json.loads(read_response_text(resp))
     # normalize: list of docs or {results|documents|chunks: [...]}
     items = (
         data
@@ -160,12 +170,14 @@ def _retrieve_json(cfg: dict, query: str, top_k: int) -> list[dict]:
 
 
 def _tokenize(s: str) -> list[str]:
+    """Lowercase alphanumeric tokens (len>=3) for keyword scoring."""
     import re
 
     return re.findall(r"[a-z0-9]{3,}", s.lower())
 
 
 def _retrieve_chroma(cfg: dict, query: str, top_k: int) -> list[dict]:
+    """Query a local Chroma collection for top-k docs."""
     try:
         import chromadb
     except ImportError:
@@ -174,7 +186,8 @@ def _retrieve_chroma(cfg: dict, query: str, top_k: int) -> list[dict]:
     col = client.get_collection(cfg.get("collection", "llm_perf"))
     res = col.query(query_texts=[query], n_results=top_k)
     docs = []
-    for i, doc in enumerate(res.get("documents", [[]])[0]):
+    # `or [[]]` guards both a missing key and an empty documents list
+    for i, doc in enumerate((res.get("documents") or [[]])[0]):
         meta = (res.get("metadatas") or [[]])[0]
         meta = meta[i] if i < len(meta) else {}
         dist = (res.get("distances") or [[]])[0]
@@ -184,6 +197,7 @@ def _retrieve_chroma(cfg: dict, query: str, top_k: int) -> list[dict]:
 
 
 def run_stage_rerank(stage: PipelineStage, ctx: StageContext) -> None:
+    """Execute the rerank stage over retrieved docs."""
     if not ctx.docs:
         return
     method = stage.method or "llm"
@@ -228,6 +242,7 @@ def _rerank_llm(stage: PipelineStage, ctx: StageContext) -> list[dict]:
 
 
 def _rerank_cross_encoder(stage: PipelineStage, ctx: StageContext) -> list[dict]:
+    """Cross-encoder rerank (requires optional deps; not implemented)."""
     raise NotImplementedError(
         "cross_encoder rerank requires sentence-transformers; " "use method: llm or install the extra"
     )
@@ -240,6 +255,9 @@ def _build_agent_tools(tool_cfgs: list[dict]):
     for t in tool_cfgs:
         ttype = t.get("type")
         name = t.get("name") or t.get("function", "").split(":")[-1]
+        if not name and ttype == "function":
+            # derive a usable tool name from the import path's callable
+            name = (t.get("import_path") or "").split(":")[-1].split(".")[-1]
         if not name:
             continue
         desc = t.get("description", f"Tool {name}")
@@ -279,11 +297,8 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
     kind, cfg = executor
     try:
         if kind == "http":
-            import requests
+            from ..security import read_response_text, shared_checked_session
 
-            from ..security import check_url
-
-            check_url(cfg["url"])
             q = args.get("input") or args.get("query") or _json.dumps(args)
             body = dict(cfg.get("body_template") or {})
             body.setdefault("query", q)
@@ -292,14 +307,16 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
             key_env = cfg.get("api_key_env")
             if key_env and os.environ.get(key_env):
                 headers["Authorization"] = f"Bearer {os.environ[key_env]}"
-            resp = requests.request(
+            # checked session re-validates redirects; capped read bounds memory
+            resp = shared_checked_session().request(
                 cfg.get("method", "POST"),
                 cfg["url"],
                 json=body,
                 headers=headers,
                 timeout=cfg.get("timeout_s", 30),
+                stream=True,
             )
-            return resp.text[:8000], time.monotonic() - start
+            return read_response_text(resp)[:8000], time.monotonic() - start
         if kind == "function":
             from ..security import python_execution_allowed
 
@@ -309,13 +326,29 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
                     time.monotonic() - start,
                 )
             import importlib
+            import inspect
 
             mod_path, _, attr = cfg["import_path"].partition(":")
             mod = importlib.import_module(mod_path)
             fn = mod
             for part in attr.split("."):
                 fn = getattr(fn, part)
-            result = fn(**args) if args else fn(args.get("input", "")) if callable(fn) else fn
+            if not callable(fn):
+                return str(fn)[:8000], time.monotonic() - start
+            # kwargs first (agent args are a dict); fall back to the scalar
+            # "input"/first-value positional for single-arg functions
+            try:
+                result = fn(**args) if args else fn(args.get("input", ""))
+            except TypeError:
+                result = fn(args.get("input") or next(iter(args.values()), ""))
+            if inspect.isawaitable(result):
+                import asyncio
+
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(result)
+                finally:
+                    loop.close()
             return str(result)[:8000], time.monotonic() - start
         if kind == "retrieve":
             docs = _retrieve(
@@ -331,6 +364,7 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
 
 
 def _agent_signature(name: str, args: dict) -> str:
+    """Stable signature for loop detection on tool name+args."""
     try:
         canon = json.dumps(args or {}, sort_keys=True, default=str)
     except Exception:
@@ -369,6 +403,7 @@ def _evaluate_agent_success(stage: PipelineStage, ctx: StageContext, ev: dict) -
 
 
 def _new_agent_eval() -> dict:
+    """Fresh agent-evaluation counters dict."""
     return {
         "steps": 0,
         "tool_calls": 0,
@@ -391,6 +426,7 @@ def _agent_llm_call(
     messages: list,
     i: int,
 ):
+    """One agent LLM step inside a stage span; returns NormalizedResponse."""
     model = params.get("model")
     spec = RequestSpec(
         provider=provider,
@@ -425,6 +461,7 @@ def _agent_tool_round(
     loop_threshold: int,
     messages: list,
 ) -> None:
+    """Execute all tool calls from one assistant turn; append tool messages."""
     for tc in tool_calls:
         fn = tc.get("function", {})
         name = fn.get("name")
@@ -433,6 +470,9 @@ def _agent_tool_round(
         except json.JSONDecodeError:
             args = {"input": fn.get("arguments") or ""}
             ev["arg_errors"] += 1
+        if not isinstance(args, dict):
+            # model returned a JSON array/scalar — wrap it as tool input
+            args = {"input": args if isinstance(args, str) else json.dumps(args)}
         ev["tool_calls"] += 1
         sig = _agent_signature(name, args)
         sig_counts[sig] = sig_counts.get(sig, 0) + 1
@@ -525,6 +565,7 @@ def _finalize_agent_eval(
     total_in: int,
     total_out: int,
 ) -> None:
+    """Score agent success and publish eval metrics/stage metrics."""
     ev["success"] = _evaluate_agent_success(stage, ctx, ev)
     ctx.usage["prompt_tokens"] += total_in
     ctx.usage["completion_tokens"] += total_out
@@ -552,6 +593,7 @@ def run_pipeline(
     target_params: dict,
     pricing=None,
 ) -> StageContext:
+    """Execute stages in order against a fresh StageContext."""
     ctx = StageContext(question, row, scenario, target_params, pricing=pricing)
     for st in stages:
         fn = _STAGE_FNS.get(st.stage)
@@ -562,6 +604,7 @@ def run_pipeline(
 
 
 def _resolve_key(llm_cfg: dict) -> str | None:
+    """Resolve the API key env var for a stage's llm config."""
     env_name = llm_cfg.get("api_key_env")
     if env_name:
         return os.environ.get(env_name)

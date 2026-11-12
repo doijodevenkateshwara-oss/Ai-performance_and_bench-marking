@@ -3,6 +3,9 @@
 Locust monkeypatches the process with gevent, which conflicts with pytest's
 already-imported modules — and real usage is a separate process anyway — so the
 runner executes `tests/e2e_runner.py` via subprocess.
+
+
+Author: Venkateshwara Doijode
 """
 
 import json
@@ -16,7 +19,10 @@ import pytest
 
 
 class MockOpenAI(BaseHTTPRequestHandler):
+    """Minimal OpenAI-compatible mock server for e2e runs."""
+
     def do_POST(self):
+        """Serve a canned chat.completion response."""
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         try:
@@ -52,11 +58,12 @@ class MockOpenAI(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, *a):
-        pass
+        """Silence BaseHTTPRequestHandler logging."""
 
 
 @pytest.fixture()
 def mock_server():
+    """Fixture: start MockOpenAI on an ephemeral port."""
     srv = HTTPServer(("127.0.0.1", 0), MockOpenAI)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
@@ -65,6 +72,7 @@ def mock_server():
 
 
 def test_locust_run_against_mock(mock_server):
+    """Full locust run against the mock produces a report."""
     runner = Path(__file__).parent / "e2e_runner.py"
     proc = subprocess.run(  # noqa: S603 - runs our own runner script
         [sys.executable, str(runner), mock_server],

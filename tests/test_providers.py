@@ -1,3 +1,8 @@
+"""Tests for provider request building and response parsing.
+
+Author: Venkateshwara Doijode
+"""
+
 import json
 
 from llm_perf.providers import RequestSpec
@@ -8,10 +13,12 @@ from llm_perf.providers.openai import OpenAIAdapter
 
 
 def _spec(provider="openai", **kw):
+    """Build a minimal RequestSpec for provider tests."""
     return RequestSpec(provider=provider, prompt="hello", params={"model": "gpt-4o-mini"}, **kw)
 
 
 def test_openai_build_request():
+    """OpenAI request has model/messages and auth header."""
     a = OpenAIAdapter()
     url, headers, body = a.build_request(_spec(stream=False))
     assert url.endswith("/chat/completions")
@@ -21,6 +28,7 @@ def test_openai_build_request():
 
 
 def test_openai_stream_adds_include_usage():
+    """Streaming requests ask for usage in the final chunk."""
     a = OpenAIAdapter()
     _, _, body = a.build_request(_spec(stream=True))
     assert body["stream"] is True
@@ -28,6 +36,7 @@ def test_openai_stream_adds_include_usage():
 
 
 def test_openai_parse_response():
+    """Unary chat.completion parses text/tokens/finish_reason."""
     a = OpenAIAdapter()
     body = json.dumps(
         {
@@ -43,6 +52,7 @@ def test_openai_parse_response():
 
 
 def test_openai_parse_stream():
+    """SSE chunks parse into text + TTFT + usage."""
     a = OpenAIAdapter()
     chunks = [
         'data: {"choices":[{"delta":{"content":"Hello"}}]}',
@@ -57,6 +67,7 @@ def test_openai_parse_stream():
 
 
 def test_anthropic_build_request():
+    """Anthropic request uses x-api-key and version headers."""
     a = AnthropicAdapter()
     spec = RequestSpec(
         provider="anthropic",
@@ -73,6 +84,7 @@ def test_anthropic_build_request():
 
 
 def test_anthropic_parse_response():
+    """Unary messages response extracts text blocks + usage."""
     a = AnthropicAdapter()
     body = json.dumps(
         {
@@ -88,6 +100,7 @@ def test_anthropic_parse_response():
 
 
 def test_anthropic_parse_stream():
+    """Anthropic SSE events parse into text + usage."""
     a = AnthropicAdapter()
     lines = [
         "event: message_start",
@@ -105,6 +118,7 @@ def test_anthropic_parse_stream():
 
 
 def test_azure_url_and_headers():
+    """Azure URL gets api-version and api-key header."""
     a = AzureAdapter()
     spec = RequestSpec(
         provider="azure",
@@ -123,11 +137,13 @@ def test_azure_url_and_headers():
 
 
 def test_usage_tokens_variants():
+    """usage_tokens handles OpenAI and Bedrock-style keys."""
     assert usage_tokens({"prompt_tokens": 1, "completion_tokens": 2}) == (1, 2, 3)
     assert usage_tokens({"input_tokens": 5, "output_tokens": 7}) == (5, 7, 12)
     assert usage_tokens(None) == (0, 0, 0)
 
 
 def test_normalized_response_tokens():
+    """NormalizedResponse.tokens sums prompt+completion."""
     r = NormalizedResponse(prompt_tokens=3, completion_tokens=4)
     assert r.tokens == 7

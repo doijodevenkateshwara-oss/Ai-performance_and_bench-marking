@@ -1,4 +1,7 @@
-"""Tests for workload profiles, analysis, history, and resources."""
+"""Tests for workload profiles, analysis, history, and resources.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ from llm_perf.workload import build_phases, schedule_summary
 
 
 def _load(**kw) -> LoadConfig:
+    """Load a YAML config string into PerfConfig."""
     return LoadConfig(users=kw.pop("users", 10), spawn_rate=kw.pop("spawn_rate", 2.0), **kw)
 
 
@@ -20,6 +24,7 @@ def _load(**kw) -> LoadConfig:
 
 
 def test_smoke_profile_phases():
+    """smoke profile yields ramp/hold/down phases."""
     phases = build_phases(_load(profile="smoke", duration="2m", ramp_up="30s", ramp_down="15s"))
     labels = [p.label for p in phases]
     assert labels == ["ramp_up", "steady", "ramp_down"]
@@ -28,6 +33,7 @@ def test_smoke_profile_phases():
 
 
 def test_load_profile_default_ramp():
+    """load profile derives ramp from users/spawn_rate."""
     phases = build_phases(_load(profile="load", users=10, spawn_rate=2.0, duration="5m"))
     # default ramp_up = users/spawn_rate = 5s
     assert phases[0].label == "ramp_up"
@@ -36,6 +42,7 @@ def test_load_profile_default_ramp():
 
 
 def test_stress_profile_steps():
+    """stress profile steps through increasing user levels."""
     phases = build_phases(_load(profile="stress", users=8, steps=4, step_duration="1m"))
     step_phases = [p for p in phases if p.label.startswith("step_")]
     assert len(step_phases) == 4
@@ -43,6 +50,7 @@ def test_stress_profile_steps():
 
 
 def test_scalability_profile():
+    """scalability holds each step plus a final steady phase."""
     phases = build_phases(
         _load(profile="scalability", users=10, step_users=5, step_duration="1m", duration="5m")
     )
@@ -52,17 +60,20 @@ def test_scalability_profile():
 
 
 def test_capacity_profile_has_steps_and_down():
+    """capacity profile steps then ramps down."""
     phases = build_phases(_load(profile="capacity", users=10, step_users=2, step_duration="30s"))
     assert any(p.target_users == 0 for p in phases)  # ramp down
 
 
 def test_spike_profile():
+    """spike profile spikes to users then returns to baseline."""
     phases = build_phases(_load(profile="spike", users=10, duration="1m", baseline_duration="30s"))
     labels = [p.label for p in phases]
     assert "spike_ramp" in labels and "spike_hold" in labels and "baseline_hold" in labels
 
 
 def test_custom_stages():
+    """Explicit stages become phases plus a ramp-down."""
     load = _load(
         stages=[
             {"users": 5, "spawn_rate": 1.0, "duration": "30s"},
@@ -76,18 +87,21 @@ def test_custom_stages():
 
 
 def test_no_profile_no_shape():
+    """No profile/stages -> empty phase list (flat locust args)."""
     assert build_phases(_load()) == []
     assert _load().uses_shape is False
     assert _load(profile="load").uses_shape is True
 
 
 def test_schedule_summary_serializable():
+    """schedule_summary emits JSON-safe phase dicts."""
     summary = schedule_summary(_load(profile="smoke", duration="1m"))
     json.dumps(summary)  # must not raise
     assert summary[0]["label"] == "ramp_up"
 
 
 def test_duration_parsing():
+    """_seconds parses s/m/h/d and compound durations."""
     phases = build_phases(_load(profile="smoke", duration="90s", ramp_up="1m", ramp_down="30s"))
     assert phases[1].duration_s == pytest.approx(90.0)
     assert phases[0].duration_s == pytest.approx(60.0)
@@ -97,6 +111,7 @@ def test_duration_parsing():
 
 
 def _report(**over) -> dict:
+    """Build a minimal aggregate report dict for analysis tests."""
     base = {
         "generated_at": "2024-01-01T00:00:00",
         "duration_s": 60.0,
@@ -178,6 +193,7 @@ def _report(**over) -> dict:
 
 
 def test_executive_summary():
+    """executive_summary produces verdict/findings/slo rollup."""
     es = analysis.executive_summary(_report())
     assert es["verdict"] == "FAIL"  # one threshold rule failed
     assert es["headline_scenario"] == "chat"
@@ -187,17 +203,20 @@ def test_executive_summary():
 
 
 def test_executive_summary_no_data():
+    """Empty runs get a NO DATA verdict."""
     es = analysis.executive_summary({"totals": {}, "scenarios": [], "thresholds": {"rules": []}})
     assert es["verdict"] == "NO DATA"
 
 
 def test_identify_bottlenecks_decode_bound():
+    """Decode-dominated scenarios flag decode_bound."""
     b = analysis.identify_bottlenecks(_report())
     types = {x["type"] for x in b}
     assert "decode_bound" in types or "stage" in types
 
 
 def test_identify_bottlenecks_reliability():
+    """High retry/timeout ratios flag reliability."""
     rep = _report()
     rep["scenarios"][0].update({"retries_total": 10.0, "timeouts": 5, "requests": 100})
     b = analysis.identify_bottlenecks(rep)
@@ -205,6 +224,7 @@ def test_identify_bottlenecks_reliability():
 
 
 def test_compare_runs():
+    """compare_runs computes per-metric deltas vs baseline."""
     cur = _report()
     base = _report()
     base["scenarios"][0]["p95_ms"] = 2000.0  # baseline slower -> current better
@@ -215,6 +235,7 @@ def test_compare_runs():
 
 
 def test_compare_runs_missing_scenario():
+    """Scenarios missing on one side are noted."""
     cur = _report()
     base = _report()
     base["scenarios"][0]["scenario"] = "other"
@@ -223,6 +244,7 @@ def test_compare_runs_missing_scenario():
 
 
 def test_detect_regressions_flags_worse():
+    """Worse-than-allowed metrics are flagged."""
     cur = _report()
     base = _report()
     cur["scenarios"][0]["p95_ms"] = 2000.0  # +100% vs baseline 1000
@@ -232,12 +254,14 @@ def test_detect_regressions_flags_worse():
 
 
 def test_detect_regressions_clean():
+    """Within-tolerance changes produce no regressions."""
     reg = analysis.detect_regressions(_report(), _report())
     assert reg["checked"] is True
     assert reg["regressions"] == []
 
 
 def test_detect_regressions_no_baseline():
+    """No baseline -> checked=False."""
     reg = analysis.detect_regressions(_report(), None)
     assert reg["checked"] is False
 
@@ -246,6 +270,7 @@ def test_detect_regressions_no_baseline():
 
 
 def test_history_record_and_previous(tmp_path):
+    """record_run persists reports; previous_run finds them."""
     cfg = PerfConfig(report=ReportConfig(output_dir=str(tmp_path), history=True))
     rep = _report()
     rep["generated_at"] = "2024-01-01T00:00:00"
@@ -265,11 +290,13 @@ def test_history_record_and_previous(tmp_path):
 
 
 def test_history_disabled(tmp_path):
+    """history=false skips persistence."""
     cfg = PerfConfig(report=ReportConfig(output_dir=str(tmp_path), history=False))
     assert history.record_run(_report(), cfg) is None
 
 
 def test_mark_and_resolve_baseline(tmp_path):
+    """mark_baseline + resolve_baseline(designated) round-trip."""
     cfg = PerfConfig(report=ReportConfig(output_dir=str(tmp_path), history=True, baseline="designated"))
     rep = _report()
     rep["generated_at"] = "2024-01-01T00:00:00"
@@ -283,6 +310,7 @@ def test_mark_and_resolve_baseline(tmp_path):
 
 
 def test_resolve_baseline_previous(tmp_path):
+    """resolve_baseline(previous) picks the prior run."""
     cfg = PerfConfig(report=ReportConfig(output_dir=str(tmp_path), history=True, baseline="previous"))
     rep = _report()
     rep["generated_at"] = "2024-01-01T00:00:00"
@@ -294,6 +322,7 @@ def test_resolve_baseline_previous(tmp_path):
 
 
 def test_resolve_baseline_none(tmp_path):
+    """baseline=none resolves to None."""
     cfg = PerfConfig(report=ReportConfig(output_dir=str(tmp_path), baseline="none"))
     assert history.resolve_baseline(cfg, _report()) is None
 
@@ -302,6 +331,7 @@ def test_resolve_baseline_none(tmp_path):
 
 
 def test_host_sampler_summary():
+    """HostSampler aggregates CPU/mem samples (psutil-mocked or empty)."""
     s = HostSampler(interval_s=0.01)
     s._sample()
     s._sample()
@@ -311,6 +341,7 @@ def test_host_sampler_summary():
 
 
 def test_scrape_prometheus(tmp_path):
+    """scrape_prometheus sums named metrics from exposition text."""
     body = """
 # HELP http_requests_total Total requests
 http_requests_total{code="200"} 100
@@ -324,13 +355,16 @@ process_cpu_seconds_total 12.5
     import threading
 
     class H(http.server.BaseHTTPRequestHandler):
+        """Stub HTTP handler serving a Prometheus exposition."""
+
         def do_GET(self):
+            """Serve canned metrics text."""
             self.send_response(200)
             self.end_headers()
             self.wfile.write(body.encode())
 
         def log_message(self, *a):
-            pass
+            """Silence handler logging."""
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -345,5 +379,6 @@ process_cpu_seconds_total 12.5
 
 
 def test_scrape_prometheus_error():
+    """Unreachable scrape URLs return an error dict."""
     out = scrape_prometheus("http://127.0.0.1:1/metrics", [])
     assert "error" in out

@@ -1,4 +1,7 @@
-"""OpenTelemetry setup: tracer/meter providers with OTLP export."""
+"""OpenTelemetry setup: tracer/meter providers with OTLP export.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -57,17 +60,22 @@ def setup_otel(
 
 
 def get_tracer(name: str = "llm_perf"):
+    """Return an OTel tracer for llm_perf spans."""
     return trace.get_tracer(name)
 
 
 def get_meter(name: str = "llm_perf"):
+    """Return an OTel meter for llm_perf instruments."""
     return metrics.get_meter(name)
 
 
 def shutdown() -> None:
-    global _initialized
+    """Flush and shut down tracer/meter providers (call at test end)."""
+    global _initialized, _tracer_provider, _meter_provider
     if _tracer_provider:
         _tracer_provider.shutdown()
+        _tracer_provider = None
     if _meter_provider:
         _meter_provider.shutdown()
+        _meter_provider = None
     _initialized = False

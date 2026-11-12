@@ -1,4 +1,7 @@
-"""Layer 2: app_object — import user's LangChain/LlamaIndex/generic object."""
+"""Layer 2: app_object — import user's LangChain/LlamaIndex/generic object.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -29,12 +32,17 @@ def _import_factory(python_path: str):
 
 
 class AppObjectLayer:
+    """Runs an in-process LangChain/LlamaIndex/generic Python object."""
+
     def __init__(self, target: AppObjectTarget, picker: PromptPicker):
+        """AppObjectLayer(target, picker): lazily imports the app on first use."""
         self.target = target
         self.picker = picker
         self._app = None
+        self._loop = None
 
     def _get_app(self):
+        """Import python_path and instantiate the app once per worker."""
         if self._app is None:
             factory = _import_factory(self.target.python_path)
             if inspect.iscoroutinefunction(factory) or not inspect.isfunction(factory):
@@ -45,6 +53,7 @@ class AppObjectLayer:
         return self._app
 
     async def _acall(self, app, method: str, prompt: str, row: dict | None):
+        """Invoke the configured method, awaiting coroutines as needed."""
         fn = getattr(app, method, None)
         if fn is None:
             raise AttributeError(f"app has no method {method!r}")
@@ -52,7 +61,11 @@ class AppObjectLayer:
         if self.target.framework == "llamaindex" or method in ("query", "aquery"):
             result = fn(prompt)
         else:
-            result = fn(input=prompt) if "input" in inspect.signature(fn).parameters else fn(prompt)
+            try:
+                takes_input = "input" in inspect.signature(fn).parameters
+            except (TypeError, ValueError):
+                takes_input = False  # builtins/C-callables: fall back to positional
+            result = fn(input=prompt) if takes_input else fn(prompt)
         if inspect.isawaitable(result):
             result = await result
         return result
@@ -61,6 +74,7 @@ class AppObjectLayer:
         self, prompt: str, row: dict | None, scenario_params: dict, scenario_name: str = "default"
     ) -> LayerResult:
         # app_object calls are async-friendly; run via asyncio in the greenlet
+        """Execute the app call on a private event loop and record metrics."""
         import asyncio
 
         t = self.target
@@ -68,11 +82,10 @@ class AppObjectLayer:
             start = time.monotonic()
             try:
                 app = self._get_app()
-                loop = asyncio.new_event_loop()
-                try:
-                    result = loop.run_until_complete(self._acall(app, t.call, prompt, row))
-                finally:
-                    loop.close()
+                # reuse one loop per layer — creating/closing per request is wasteful
+                if self._loop is None or self._loop.is_closed():
+                    self._loop = asyncio.new_event_loop()
+                result = self._loop.run_until_complete(self._acall(app, t.call, prompt, row))
                 e2e = time.monotonic() - start
                 text = _extract_text(result)
                 from ..metrics import instruments, log_request_event
@@ -85,7 +98,7 @@ class AppObjectLayer:
                 )
                 log_request_event(scenario_name, e2e * 1000)
                 span.set_attribute("llm_perf.output_chars", len(text))
-                return LayerResult(output_text=text, row=row, stage_metrics={"e2e_s": e2e}, raw=result)
+                return LayerResult(output_text=text, row=row, raw=result)
             except Exception as e:
                 e2e = time.monotonic() - start
                 record_error(scenario_name, f"app_{t.framework}", str(e), e2e)
@@ -93,7 +106,10 @@ class AppObjectLayer:
 
                 log_request_event(scenario_name, e2e * 1000, exception=str(e))
                 span.set_attribute("error", True)
-                return LayerResult(error=str(e), row=row, stage_metrics={"e2e_s": e2e})
+                return LayerResult(
+                    error=str(e),
+                    row=row,
+                )
 
 
 def _extract_text(result) -> str:

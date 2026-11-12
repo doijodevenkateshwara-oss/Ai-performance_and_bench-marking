@@ -1,4 +1,7 @@
-"""Layer protocol — every target type implements run()."""
+"""Layer protocol — every target type implements run().
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -10,9 +13,10 @@ from ..providers.base import NormalizedResponse
 
 @dataclass
 class LayerResult:
+    """Uniform result returned by every layer's run()."""
+
     output_text: str = ""
     response: NormalizedResponse | None = None
-    stage_metrics: dict[str, float] = field(default_factory=dict)  # stage -> seconds
     retrieved_texts: list[str] = field(default_factory=list)
     row: dict | None = None
     raw: Any = None
@@ -20,4 +24,8 @@ class LayerResult:
 
 
 class Layer(Protocol):
-    def run(self, prompt: str, row: dict | None, scenario_params: dict) -> LayerResult: ...
+    """Protocol every target layer implements: run(prompt, row, params)."""
+
+    def run(self, prompt: str, row: dict | None, scenario_params: dict) -> LayerResult:
+        """Execute one request; return a LayerResult."""
+        ...

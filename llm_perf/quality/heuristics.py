@@ -1,4 +1,7 @@
-"""Zero-cost heuristic quality checks."""
+"""Zero-cost heuristic quality checks.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -11,6 +14,8 @@ from ..config import HeuristicChecks
 
 @dataclass
 class CheckResult:
+    """One named check outcome (pass/fail + detail + weight)."""
+
     name: str
     passed: bool
     detail: str = ""
@@ -19,16 +24,20 @@ class CheckResult:
 
 @dataclass
 class HeuristicReport:
+    """Collection of check results with aggregate score/tags."""
+
     checks: list[CheckResult] = field(default_factory=list)
     score: float = 1.0
     failure_tags: list[str] = field(default_factory=list)
 
     @property
     def all_passed(self) -> bool:
+        """True when every check passed (vacuously true with no checks)."""
         return all(c.passed for c in self.checks) if self.checks else True
 
 
 def run_heuristics(text: str, cfg: HeuristicChecks, row: dict | None = None) -> HeuristicReport:
+    """Run all configured zero-cost checks against a response."""
     checks: list[CheckResult] = []
     text = text or ""
 

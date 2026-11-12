@@ -1,3 +1,8 @@
+"""Tests for SSE parsing and streaming timing statistics.
+
+Author: Venkateshwara Doijode
+"""
+
 from llm_perf.providers.http_common import (
     anthropic_sse_extractor,
     openai_sse_extractor,
@@ -7,15 +12,18 @@ from llm_perf.providers.http_common import (
 
 
 def _lines(payloads):
+    """Encode strings as fake SSE byte lines."""
     return iter(payloads)
 
 
 def test_openai_sse_extractor_delta():
+    """Content deltas extract text from chunks."""
     text, usage, done = openai_sse_extractor('{"choices":[{"delta":{"content":"abc"}}]}')
     assert text == "abc" and not done and usage is None
 
 
 def test_openai_sse_extractor_finish():
+    """finish_reason marks the stream done."""
     _text, usage, done = openai_sse_extractor(
         '{"choices":[{"delta":{},"finish_reason":"stop"}],'
         '"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}'
@@ -25,6 +33,7 @@ def test_openai_sse_extractor_finish():
 
 
 def test_stream_sse_full():
+    """Full stream accumulates text, TTFT, usage, offsets."""
     payloads = [
         b'data: {"choices":[{"delta":{"content":"Hello"}}]}',
         b"",
@@ -41,6 +50,7 @@ def test_stream_sse_full():
 
 
 def test_stream_sse_skips_comments_and_bad_json():
+    """Comments and malformed payloads are skipped."""
     payloads = [
         b": keep-alive",
         b"data: {not json",
@@ -53,6 +63,7 @@ def test_stream_sse_skips_comments_and_bad_json():
 
 def test_stream_timing_stats():
     # two chunks 100ms apart, 5 completion tokens -> generation 0.1s, tpot ~0.025s
+    """TPOT/ITL stats derive from chunk offsets."""
     offs = [0.5, 0.6]
     stats = stream_timing_stats(offs, completion_tokens=5)
     assert abs(stats["generation_s"] - 0.1) < 1e-9
@@ -65,6 +76,7 @@ def test_stream_timing_stats():
 
 
 def test_stream_timing_stats_single_chunk():
+    """Single-chunk streams yield null timing stats."""
     stats = stream_timing_stats([0.3], completion_tokens=10)
     assert stats["generation_s"] is None
     assert stats["tpot_s"] is None
@@ -73,6 +85,7 @@ def test_stream_timing_stats_single_chunk():
 
 
 def test_stream_sse_first_token_only():
+    """first_token_only stops after the first content chunk."""
     payloads = [
         b'data: {"choices":[{"delta":{"content":"a"}}]}',
         b'data: {"choices":[{"delta":{"content":"b"}}]}',
@@ -85,6 +98,7 @@ def test_stream_sse_first_token_only():
 
 
 def test_anthropic_extractor_events():
+    """Anthropic event types map to deltas/usage/done."""
     t, u, d = anthropic_sse_extractor('{"type":"content_block_delta","delta":{"text":"hey"}}')
     assert t == "hey" and not d
     t, u, d = anthropic_sse_extractor(

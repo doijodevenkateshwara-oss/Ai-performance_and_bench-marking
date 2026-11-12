@@ -1,4 +1,7 @@
-"""AWS Bedrock provider via boto3 Converse API (sync client in threadpool)."""
+"""AWS Bedrock provider via boto3 Converse API (sync client in threadpool).
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ _clients: dict = {}
 
 
 def _get_client(spec: RequestSpec):
+    """Return a cached boto3 bedrock-runtime client per aws config."""
     key = (
         spec.extra.get("aws", {}).get("region"),
         spec.extra.get("aws", {}).get("auth"),
@@ -32,15 +36,20 @@ def _get_client(spec: RequestSpec):
 
 
 class BedrockAdapter:
+    """AWS Bedrock Converse API adapter (boto3 in a threadpool)."""
+
     name = "bedrock"
 
     def default_base_url(self):
+        """None — Bedrock is not HTTP-configured."""
         return None
 
     def default_endpoint(self, stream: bool) -> str:
+        """Logical endpoint label ('converse')."""
         return "converse"
 
     def _converse_input(self, spec: RequestSpec) -> dict:
+        """Build the Converse API request dict from a RequestSpec."""
         params = spec.params
         model_id = params.get("model") or params.get("model_id")
         if not model_id:
@@ -64,10 +73,12 @@ class BedrockAdapter:
 
     def build_request(self, spec: RequestSpec):
         # boto3-based; no HTTP request to build
+        """Return a synthetic request descriptor (real call via call())."""
         return ("bedrock://converse", {}, self._converse_input(spec))
 
     def parse_response(self, status, headers, body, stream_iter=None) -> NormalizedResponse:
         # body here is the converse input dict; actual call happens via call()
+        """Unused — Bedrock executes via call(); raises NotImplementedError."""
         raise NotImplementedError("use BedrockAdapter.call()")
 
     def call(self, spec: RequestSpec) -> NormalizedResponse:
@@ -80,11 +91,11 @@ class BedrockAdapter:
         return self._call_unary(client, inp, spec, start)
 
     def _call_unary(self, client, inp, spec, start) -> NormalizedResponse:
+        """Run a blocking converse call in the threadpool and normalize."""
         try:
             resp = _executor.submit(client.converse, **inp).result(timeout=spec.timeout_s)
         except Exception as e:
             return NormalizedResponse(text="", raw={"error": str(e)})
-        elapsed = time.monotonic() - start
         out = resp.get("output", {}).get("message", {}).get("content", [])
         text = "".join(b.get("text", "") for b in out if isinstance(b, dict))
         usage = resp.get("usage") or {}
@@ -98,10 +109,10 @@ class BedrockAdapter:
             finish_reason=(resp.get("stopReason")),
             model=inp["modelId"],
             raw=resp,
-            stage_metrics={"e2e_s": elapsed},
         )
 
     def _call_stream(self, client, inp, spec, start) -> NormalizedResponse:
+        """Consume converse_stream events; collect text/usage/timing."""
         text_parts = []
         ttft = None
         chunk_offsets: list[float] = []
@@ -143,5 +154,4 @@ class BedrockAdapter:
             stream_stats=timing,
             model=model_id,
             raw=usage,
-            stage_metrics={"e2e_s": elapsed},
         )

@@ -1,4 +1,7 @@
-"""Anthropic Messages API provider."""
+"""Anthropic Messages API provider.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -9,15 +12,20 @@ from .http_common import anthropic_sse_extractor, auth_headers, stream_sse, stre
 
 
 class AnthropicAdapter:
+    """Anthropic Messages API provider adapter."""
+
     name = "anthropic"
 
     def default_base_url(self):
+        """Default Anthropic API base URL."""
         return "https://api.anthropic.com"
 
     def default_endpoint(self, stream: bool) -> str:
+        """Messages endpoint path."""
         return "/v1/messages"
 
     def build_request(self, spec: RequestSpec):
+        """Build URL, headers (x-api-key), and JSON body for a call."""
         headers = auth_headers(spec)
         headers["x-api-key"] = spec.api_key or ""
         headers["anthropic-version"] = "2023-06-01"
@@ -38,6 +46,7 @@ class AnthropicAdapter:
     def parse_response(
         self, status, headers, body, stream_iter=None, stream_mode: str = "full"
     ) -> NormalizedResponse:
+        """Parse unary or SSE-streamed Anthropic responses."""
         if stream_iter is not None:
             # Anthropic SSE includes `event:` lines; stream_sse skips non-"data:" lines.
             sr = stream_sse(

@@ -1,4 +1,7 @@
-"""Provider adapter registry."""
+"""Provider adapter registry.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -22,7 +25,10 @@ _RETRYABLE_EXC = (requests.Timeout, requests.ConnectionError)
 
 
 def get_adapter(provider: str, **kwargs) -> ProviderAdapter:
-    key = f"openai:{kwargs['api_style']}" if provider == "openai" and kwargs.get("api_style") else provider
+    # cache per provider+variant so mixed api_style targets don't collide
+    """Return the cached adapter for a provider (+api_style variant)."""
+    variant = kwargs.get("api_style") if provider in ("openai", "azure") else None
+    key = f"{provider}:{variant}" if variant else provider
     if key not in _ADAPTERS:
         if provider == "openai":
             _ADAPTERS[key] = OpenAIAdapter(api_style=kwargs.get("api_style", "chat"))
@@ -50,6 +56,7 @@ def _queue_wait_s(spec: RequestSpec) -> float | None:
 
 
 def _backoff_sleep(base_s: float, attempt: int) -> None:
+    """Sleep with exponential backoff plus jitter between retries."""
     time.sleep(base_s * (2 ** (attempt - 1)) + random.uniform(0, base_s * 0.25))
 
 
@@ -78,6 +85,7 @@ def _post_with_retries(client, url, headers, body, stream, timeout, retry_cfg):
             return None, str(e), retries, False
         if resp.status_code >= 500 and "5xx" in retry_on and attempt < max_retries:
             retries += 1
+            resp.close()  # release the connection before retrying
             if backoff:
                 _backoff_sleep(backoff, attempt + 1)
             continue

@@ -1,4 +1,7 @@
-"""Provider adapter protocol and normalized response types."""
+"""Provider adapter protocol and normalized response types.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -25,11 +28,11 @@ class NormalizedResponse:
     queue_wait_s: float | None = None  # task start -> request dispatch
     retries: int = 0  # retry attempts made for this call
     timed_out: bool = False
-    stage_metrics: dict[str, float] = field(default_factory=dict)
     tool_calls: list[dict] | None = None  # OpenAI-style tool calls from the model
 
     @property
     def tokens(self) -> int:
+        """Total tokens (prompt + completion)."""
         return self.prompt_tokens + self.completion_tokens
 
 
@@ -55,17 +58,23 @@ class ProviderAdapter(Protocol):
 
     name: str
 
-    def default_base_url(self) -> str | None: ...
+    def default_base_url(self) -> str | None:
+        """Provider default base URL, if any."""
+        ...
 
-    def default_endpoint(self, stream: bool) -> str: ...
+    def default_endpoint(self, stream: bool) -> str:
+        """Default request path for the provider."""
+        ...
 
     def build_request(self, spec: RequestSpec) -> tuple[str, dict, bytes | None]:
         """Return (url, headers, json_body_or_None)."""
         ...
 
     def parse_response(
-        self, status: int, headers: dict, body: bytes, stream_iter=None
-    ) -> NormalizedResponse: ...
+        self, status: int, headers: dict, body: bytes, stream_iter=None, stream_mode: str = "full"
+    ) -> NormalizedResponse:
+        """Turn a raw HTTP response into a NormalizedResponse."""
+        ...
 
 
 def usage_tokens(usage: dict | None) -> tuple[int, int, int]:

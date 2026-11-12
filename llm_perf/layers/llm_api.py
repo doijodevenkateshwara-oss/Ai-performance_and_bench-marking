@@ -1,4 +1,7 @@
-"""Layer 1: direct LLM API calls via provider adapters."""
+"""Layer 1: direct LLM API calls via provider adapters.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -6,26 +9,24 @@ import os
 import time
 
 from ..config import LlmApiTarget
-from ..metrics import record_response, request_span
+from ..metrics import log_request_event, record_error, record_response, request_span
 from ..prompts import PromptPicker
 from ..providers import RequestSpec, call_llm
 from .base import LayerResult
 
 
 class LlmApiLayer:
+    """Direct vendor-API layer: builds a RequestSpec and calls call_llm."""
+
     def __init__(self, target: LlmApiTarget, picker: PromptPicker):
+        """LlmApiLayer(target, picker)."""
         self.target = target
         self.picker = picker
-
-    def pick_prompt(self, rng) -> tuple[str, dict | None]:
-        if self.target.dataset:
-            # dataset handled by caller; picker falls back to prompts
-            pass
-        return self.picker.pick(rng), None
 
     def run(
         self, prompt: str, row: dict | None, scenario_params: dict, scenario_name: str = "default"
     ) -> LayerResult:
+        """Execute one LLM call, record metrics/traces, return LayerResult."""
         t = self.target
         params = {**t.params, **scenario_params}
         api_key = None
@@ -58,8 +59,6 @@ class LlmApiLayer:
             e2e = time.monotonic() - start
             err = (resp.raw or {}).get("error") if isinstance(resp.raw, dict) else None
             if err:
-                from ..metrics import log_request_event, record_error
-
                 record_error(
                     scenario_name,
                     t.provider,
@@ -73,13 +72,15 @@ class LlmApiLayer:
                 from ..security import redact_secrets
 
                 span.set_attribute("llm_perf.error", redact_secrets(str(err))[:500])
-                return LayerResult(error=str(err), response=resp, stage_metrics={"e2e_s": e2e}, row=row)
+                return LayerResult(error=str(err), response=resp, row=row)
             record_response(scenario_name, resp, e2e, t.provider, model=model)
-            from ..metrics import log_request_event
-
             log_request_event(scenario_name, e2e * 1000)
             span.set_attribute("gen_ai.usage.input_tokens", resp.prompt_tokens)
             span.set_attribute("gen_ai.usage.output_tokens", resp.completion_tokens)
             if resp.finish_reason:
                 span.set_attribute("gen_ai.response.finish_reasons", [resp.finish_reason])
-            return LayerResult(output_text=resp.text, response=resp, row=row, stage_metrics={"e2e_s": e2e})
+            return LayerResult(
+                output_text=resp.text,
+                response=resp,
+                row=row,
+            )

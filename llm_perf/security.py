@@ -9,6 +9,9 @@ sizes, and enable log/trace redaction.
 Policy is a process-wide singleton set from `PerfConfig.security` via
 `set_policy()` — called by the CLI and the generated locustfile so every
 worker process picks it up.
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -16,9 +19,11 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+import urllib.request
 from urllib.parse import urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
 
 
 class UrlNotAllowed(PermissionError, requests.RequestException):
@@ -65,6 +70,7 @@ def reset_policy() -> None:
 
 
 def _host_in_allowlist(host: str, allowlist: list[str]) -> bool:
+    """True when host matches an allowlist entry (suffix-aware)."""
     host = host.lower().rstrip(".")
     for entry in allowlist or []:
         e = str(entry).lower().strip()
@@ -77,6 +83,7 @@ def _host_in_allowlist(host: str, allowlist: list[str]) -> bool:
 
 
 def _ip_blocked(ip_str: str) -> bool:
+    """True when an IP literal is not globally routable."""
     try:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
@@ -114,6 +121,83 @@ def check_url(url: str) -> None:
                 f"host {host!r} resolves to non-public address {ip_str} "
                 "(security.allow_private_networks=false)"
             )
+
+
+# ---------------------------------------------------------------------------
+# Redirect-safe HTTP plumbing
+#
+# check_url() runs once per call site, but requests/urllib follow redirects
+# transparently — a public URL could 302 to an internal address and bypass
+# the policy. The helpers below re-check every hop:
+#   - CheckedHTTPAdapter.send() runs for each redirect inside requests
+#   - _CheckedRedirectHandler.redirect_request() runs for urllib openers
+# DNS rebinding between the check and the actual connect is still possible;
+# full mitigation requires connecting to the resolved IP directly.
+# ---------------------------------------------------------------------------
+
+
+class CheckedHTTPAdapter(HTTPAdapter):
+    """requests adapter that re-validates the URL on every send (incl. redirects)."""
+
+    def send(self, request, **kwargs):
+        """Adapter.send: validate the request URL then delegate to requests."""
+        check_url(request.url)
+        return super().send(request, **kwargs)
+
+
+def checked_session() -> requests.Session:
+    """A requests.Session whose every request/redirect hop passes check_url()."""
+    s = requests.Session()
+    s.mount("http://", CheckedHTTPAdapter())
+    s.mount("https://", CheckedHTTPAdapter())
+    return s
+
+
+_SHARED_SESSION: requests.Session | None = None
+
+
+def shared_checked_session() -> requests.Session:
+    """Process-wide checked session for one-off calls (connection reuse)."""
+    global _SHARED_SESSION
+    if _SHARED_SESSION is None:
+        _SHARED_SESSION = checked_session()
+    return _SHARED_SESSION
+
+
+class _CheckedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """urllib redirect handler that re-checks each hop's URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Validate the redirect target, then build the follow-up request."""
+        check_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_CHECKED_OPENER = urllib.request.build_opener(_CheckedRedirectHandler)
+
+
+def checked_urlopen(req, timeout: float = 30.0):
+    """urllib.request.urlopen equivalent that checks redirect targets too."""
+    return _CHECKED_OPENER.open(req, timeout=timeout)
+
+
+def read_response_text(resp: requests.Response, max_bytes: int | None = None) -> str:
+    """Read a (preferably streamed) response body with a hard byte cap.
+
+    Raises UrlNotAllowed when the body exceeds the cap so oversized or
+    hostile endpoints can't exhaust memory. Pair with stream=True at
+    request time for the cap to apply during download.
+    """
+    limit = max_bytes if max_bytes is not None else get_policy().http_max_response_bytes
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in resp.iter_content(65536):
+        total += len(chunk)
+        if total > limit:
+            resp.close()
+            raise UrlNotAllowed(f"response body exceeds security.http_max_response_bytes={limit}")
+        chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", "replace")
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +273,7 @@ def python_execution_allowed(kind: str) -> bool:
 
 
 def _warn_once(key: str, msg: str) -> None:
+    """Print a warning only the first time a key is seen."""
     if key in _warned_once:
         return
     _warned_once.add(key)
@@ -201,6 +286,7 @@ def _warn_once(key: str, msg: str) -> None:
 
 
 def _iter_targets(cfg):
+    """Return the config's target list (empty when absent)."""
     return list(getattr(cfg, "targets", None) or [])
 
 

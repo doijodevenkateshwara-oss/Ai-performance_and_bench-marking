@@ -1,6 +1,9 @@
 """Run history store — every report JSON is kept under results/history/.
 
 Enables previous-run deltas, designated baselines, and regression detection.
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -13,10 +16,12 @@ from .config import PerfConfig
 
 
 def history_dir(config: PerfConfig) -> Path:
+    """Directory holding per-run history JSON files."""
     return Path(config.report.output_dir) / "history"
 
 
 def _index_path(config: PerfConfig) -> Path:
+    """Path to the append-only history index (index.jsonl)."""
     return history_dir(config) / "index.jsonl"
 
 
@@ -75,6 +80,7 @@ def previous_run(config: PerfConfig, before_ts: str | None = None) -> dict | Non
 
 
 def baseline_path(config: PerfConfig) -> Path:
+    """Path to the designated-baseline pointer file."""
     return Path(config.report.output_dir) / "baseline.json"
 
 

@@ -1,3 +1,8 @@
+"""Tests for dataset loading, sampling, templating, and trace import.
+
+Author: Venkateshwara Doijode
+"""
+
 import json
 import random
 
@@ -6,18 +11,21 @@ from llm_perf.datasets import Dataset, import_traces, write_dataset
 
 
 def _cfg(tmp_path, rows, **kw):
+    """Build a DatasetConfig for tests."""
     p = tmp_path / "d.jsonl"
     p.write_text("\n".join(json.dumps(r) for r in rows))
     return DatasetConfig(source=str(p), format="jsonl", **kw)
 
 
 def test_load_jsonl(tmp_path):
+    """JSONL datasets load into row dicts."""
     cfg = _cfg(tmp_path, [{"prompt": "a"}, {"prompt": "b"}])
     ds = Dataset.load("d", cfg)
     assert len(ds.rows) == 2
 
 
 def test_column_mapping(tmp_path):
+    """columns mapping renames source fields to logical names."""
     cfg = _cfg(tmp_path, [{"q": "hello", "a": "world"}], columns={"prompt": "q", "expected": "a"})
     ds = Dataset.load("d", cfg)
     assert ds.rows[0]["prompt"] == "hello"
@@ -25,6 +33,7 @@ def test_column_mapping(tmp_path):
 
 
 def test_sample_first_n(tmp_path):
+    """sample strategy=first truncates to count rows."""
     rows = [{"prompt": str(i)} for i in range(10)]
     cfg = _cfg(tmp_path, rows, sample={"strategy": "first", "count": 3})
     ds = Dataset.load("d", cfg)
@@ -32,6 +41,7 @@ def test_sample_first_n(tmp_path):
 
 
 def test_render_vars(tmp_path):
+    """{var} placeholders render from row fields and vars pools."""
     cfg = _cfg(tmp_path, [{"prompt": "Tell me about {topic}."}], vars={"topic": ["k8s", "finops"]})
     ds = Dataset.load("d", cfg)
     rng = random.Random(0)
@@ -41,6 +51,7 @@ def test_render_vars(tmp_path):
 
 
 def test_shard_deterministic(tmp_path):
+    """Worker sharding splits rows deterministically."""
     rows = [{"prompt": str(i)} for i in range(10)]
     cfg = _cfg(tmp_path, rows)
     ds = Dataset.load("d", cfg)
@@ -52,6 +63,7 @@ def test_shard_deterministic(tmp_path):
 
 
 def test_import_traces_generic(tmp_path):
+    """Generic JSONL trace import with field mapping."""
     p = tmp_path / "traces.jsonl"
     p.write_text(
         "\n".join(json.dumps({"inputs": {"question": f"q{i}"}, "outputs": {"answer": "a"}}) for i in range(3))
@@ -64,6 +76,7 @@ def test_import_traces_generic(tmp_path):
 
 
 def test_import_traces_langsmith(tmp_path):
+    """LangSmith trace export maps to prompt/expected rows."""
     p = tmp_path / "ls.jsonl"
     p.write_text(json.dumps({"inputs": {"question": "hi"}, "outputs": {"answer": "yo"}}))
     rows = import_traces(str(p), fmt="langsmith")
@@ -72,6 +85,7 @@ def test_import_traces_langsmith(tmp_path):
 
 
 def test_write_dataset_jsonl(tmp_path):
+    """write_dataset emits valid JSONL."""
     dest = tmp_path / "out.jsonl"
     write_dataset([{"prompt": "x"}, {"prompt": "y"}], str(dest), "jsonl")
     assert len(dest.read_text().strip().splitlines()) == 2

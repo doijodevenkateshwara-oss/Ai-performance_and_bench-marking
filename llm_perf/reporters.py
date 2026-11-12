@@ -1,4 +1,7 @@
-"""End-of-run statistical reports: CSV / JSON / HTML."""
+"""End-of-run statistical reports: CSV / JSON / HTML.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -12,29 +15,9 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from .config import PerfConfig
 from .thresholds import ThresholdReport
 
-_METHOD_LABELS = {
-    "": "requests",
-    "GET": "requests",
-    "POST": "requests",
-    "TTFT": "ttft_ms",
-    "TOKENS": "tokens",
-    "PROMPT_TOKENS": "prompt_tokens",
-    "COMPLETION_TOKENS": "completion_tokens",
-    "TOKENS_PER_SEC": "tokens_per_sec",
-    "INPUT_TOKENS_PER_SEC": "input_tokens_per_sec",
-    "TPOT": "tpot_ms",
-    "GEN_DURATION": "gen_duration_ms",
-    "ITL_AVG": "itl_avg_ms",
-    "ITL_P95": "itl_p95_ms",
-    "QUEUE_WAIT": "queue_wait_ms",
-    "RETRIES": "retries",
-    "TIMEOUTS": "timeouts",
-    "QUALITY_SCORE": "quality_score_x1000",
-    "CONTEXT_RECALL": "context_recall_x1000",
-}
-
 
 def _entry_stats(entry) -> dict:
+    """Extract aggregate stats dict from a Locust StatsEntry."""
     if entry is None:
         return {}
     try:
@@ -111,6 +94,7 @@ def _enrich_scenario(sc: dict, custom_stats: dict) -> None:
 
 
 def _enrich_quality(sc: dict, custom_stats: dict, name: str) -> None:
+    """Attach quality score/pass-rate/recall fields to a scenario report."""
     q_e = _snap(custom_stats, name, "quality_score")
     q = sc["methods"].get("QUALITY_SCORE", {})
     if q_e:
@@ -129,6 +113,7 @@ def _enrich_quality(sc: dict, custom_stats: dict, name: str) -> None:
 
 
 def _enrich_agent(sc: dict, custom_stats: dict, name: str) -> None:
+    """Attach agent-run metrics (success rate, steps, tool errors) to a scenario."""
     ag_run = _snap(custom_stats, name, "agent_run")
     if not ag_run:
         return
@@ -172,11 +157,6 @@ def aggregate(
         sc["methods"][method or ""] = _entry_stats(e)
 
     # totals
-    total_req = (
-        getattr(stats, "total_num_requests", lambda: 0)()
-        if callable(getattr(stats, "total_num_requests", None))
-        else getattr(stats, "num_requests", 0)
-    )
     try:
         total_req = stats.total.num_requests
         total_fail = stats.total.num_failures
@@ -220,6 +200,7 @@ def aggregate(
                     "threshold": r.threshold,
                     "actual": r.actual,
                     "passed": r.passed,
+                    "status": r.status,
                     "scope": r.scope,
                 }
             )
@@ -236,6 +217,7 @@ def aggregate(
         "thresholds": {
             "all_passed": threshold_report.all_passed if threshold_report else None,
             "failed": [r.name for r in threshold_report.failed] if threshold_report else [],
+            "not_evaluated": ([r.name for r in threshold_report.not_evaluated] if threshold_report else []),
             "rules": verdicts,
         },
     }
@@ -244,6 +226,7 @@ def aggregate(
 def write_reports(
     report: dict, config: PerfConfig, threshold_report: ThresholdReport | None = None
 ) -> list[Path]:
+    """Write the report as JSON/CSV/HTML under report.output_dir."""
     out_dir = Path(config.report.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S")

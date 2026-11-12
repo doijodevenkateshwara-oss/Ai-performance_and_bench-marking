@@ -1,4 +1,7 @@
-"""llm-perf CLI."""
+"""llm-perf CLI.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -17,6 +20,7 @@ console = Console()
 
 
 def _load_or_exit(path: str, skip_connectivity: bool = False) -> PerfConfig:
+    """Load + validate a config; install the security policy; exit(2) on error."""
     try:
         cfg = PerfConfig.from_yaml(path)
     except Exception as e:
@@ -47,6 +51,7 @@ def _filter_config(cfg: PerfConfig, layers: str | None, scenarios: str | None) -
 
 
 def _check_env_vars(cfg: PerfConfig) -> None:
+    """Warn about missing API-key env vars, dataset sources, and alert webhooks."""
     missing = []
     for t in cfg.targets:
         env = getattr(t, "api_key_env", None)
@@ -248,6 +253,7 @@ def baseline_list(config: str = typer.Option(..., "-c", "--config"), limit: int 
 
 @dataset_app.command("list")
 def ds_list(config: str = typer.Option(..., "-c", "--config")):
+    """List configured datasets."""
     cfg = _load_or_exit(config, skip_connectivity=True)
     for name, ds in cfg.datasets.items():
         console.print(f"{name}: {ds.source} (format={ds.format or 'auto'})")
@@ -255,6 +261,7 @@ def ds_list(config: str = typer.Option(..., "-c", "--config")):
 
 @dataset_app.command("show")
 def ds_show(name: str, config: str = typer.Option(..., "-c", "--config")):
+    """Print the first rows of a dataset."""
     cfg = _load_or_exit(config, skip_connectivity=True)
     ds_cfg = cfg.datasets.get(name)
     if not ds_cfg:
@@ -270,6 +277,7 @@ def ds_show(name: str, config: str = typer.Option(..., "-c", "--config")):
 
 @dataset_app.command("sample")
 def ds_sample(name: str, config: str = typer.Option(..., "-c", "--config"), n: int = typer.Option(5, "-n")):
+    """Print random sample rows from a dataset."""
     import random
 
     cfg = _load_or_exit(config, skip_connectivity=True)
@@ -323,6 +331,7 @@ def ds_validate(path: str):
 
 
 def main():
+    """Typer entry point."""
     app()
 
 

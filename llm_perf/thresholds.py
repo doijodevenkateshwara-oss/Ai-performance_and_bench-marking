@@ -1,4 +1,7 @@
-"""SLO threshold evaluation, verdicts, and webhook alerts."""
+"""SLO threshold evaluation, verdicts, and webhook alerts.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,8 @@ from .config import ThresholdRule, ThresholdsConfig
 
 @dataclass
 class RuleResult:
+    """Outcome of one SLO rule evaluation."""
+
     name: str
     metric: str
     comparator: str  # <= or >=
@@ -21,18 +26,50 @@ class RuleResult:
     passed: bool | None  # None = skipped (no data)
     scope: str = "scenario"  # global | scenario
 
+    @property
+    def status(self) -> str:
+        """Three-state verdict: pass | fail | not_evaluated."""
+        if self.passed is True:
+            return "pass"
+        if self.passed is False:
+            return "fail"
+        return "not_evaluated"
+
 
 @dataclass
 class ThresholdReport:
+    """All rule results with aggregate pass/fail helpers."""
+
     results: list[RuleResult] = field(default_factory=list)
+    on_fail: str = "fail"  # policy copied from ThresholdsConfig at evaluate() time
+    on_not_evaluated: str = "pass"
 
     @property
     def all_passed(self) -> bool:
+        """True when no rule explicitly failed (skips count as pass)."""
         return all(r.passed is not False for r in self.results)
 
     @property
     def failed(self) -> list[RuleResult]:
+        """Rules that evaluated to FAIL."""
         return [r for r in self.results if r.passed is False]
+
+    @property
+    def not_evaluated(self) -> list[RuleResult]:
+        """Rules with no data — neither pass nor fail."""
+        return [r for r in self.results if r.passed is None]
+
+    @property
+    def should_fail_ci(self) -> bool:
+        """True when CI should exit nonzero under the configured policies."""
+        if self.failed and self.on_fail == "fail":
+            return True
+        return bool(self.not_evaluated) and self.on_not_evaluated == "fail"
+
+    @property
+    def should_warn(self) -> bool:
+        """True when unevaluated rules should surface as a warning only."""
+        return bool(self.not_evaluated) and self.on_not_evaluated == "warn"
 
 
 # metric name -> (stats lookup kind)
@@ -61,15 +98,20 @@ _GAUGE_RULES = [
 ]
 
 
-def _stats_snapshot(stats, name: str):
-    """Pull a per-name stats entry (total requests) from Locust stats."""
+def _request_entries(stats, scenario: str | None):
+    """Yield request-counting entries (excludes custom-stat entries like TTFT)."""
     try:
-        return stats.get(name, name, "GET") if name else None
+        for e in stats.entries.values():
+            if e.method not in ("", "POST", "GET"):
+                continue
+            if scenario is None or e.name == scenario:
+                yield e
     except Exception:
-        return None
+        return
 
 
 def _entry_for(stats, scenario: str, method: str):
+    """Fetch a (scenario, method) stats entry safely."""
     try:
         return stats.get(scenario, method)
     except Exception:
@@ -96,6 +138,7 @@ def evaluate(
     custom_stats = custom_stats or {}
 
     def check_rule(rule: ThresholdRule, scope: str, scenario: str | None):
+        """Evaluate every set field of one ThresholdRule for a scope."""
         label = f"{scope}:{scenario}" if scenario else scope
         # latency percentiles — use the scenario's request entry (method "" aggregate)
         entry = _aggregate_entry(stats, scenario) if scenario else _global_entry(stats)
@@ -184,11 +227,14 @@ def evaluate(
     for sc_name, rule in (thresholds.scenarios or {}).items():
         if sc_name in scenario_names or not scenario_names:
             check_rule(rule, "scenario", sc_name)
+    rep.on_fail = thresholds.on_fail
+    rep.on_not_evaluated = thresholds.on_not_evaluated
     return rep
 
 
 def _aggregate_entry(stats, scenario: str):
     # the request entry is named scenario+method; use aggregate across methods
+    """Pick the dominant request entry for a scenario."""
     entries = []
     try:
         for e in stats.entries.values():
@@ -203,6 +249,7 @@ def _aggregate_entry(stats, scenario: str):
 
 
 def _global_entry(stats):
+    """Return stats.total as the global-scope entry."""
     try:
         return stats.total
     except Exception:
@@ -210,6 +257,7 @@ def _global_entry(stats):
 
 
 def _percentile(entry, pct: float) -> float | None:
+    """Response-time percentile from a stats entry (API-tolerant)."""
     if entry is None:
         return None
     try:
@@ -223,11 +271,13 @@ def _percentile(entry, pct: float) -> float | None:
 
 
 def _snap_avg(custom_stats, scenario, metric):
+    """Average of exact samples for (scenario, metric), or None."""
     se = custom_stats.get((scenario or "", metric)) if custom_stats else None
     return se["avg"] if se else None
 
 
 def _snap_sum(custom_stats, scenario, metric):
+    """Sum of exact samples for (scenario, metric), or None."""
     se = custom_stats.get((scenario or "", metric)) if custom_stats else None
     return se["sum"] if se else None
 
@@ -243,20 +293,25 @@ def _gauge_value(
     stage_stats,
     custom_stats=None,
 ):
+    """Compute the actual value for one gauge-style threshold metric."""
     try:
         if metric == "error_rate":
-            if total_requests <= 0:
+            # scope the denominator: scenario rules must use that scenario's
+            # request count, not the global total
+            fails = reqs = 0
+            for e in _request_entries(stats, scenario):
+                reqs += e.num_requests
+                fails += e.num_failures
+            if reqs <= 0:
                 return 0.0
-            fails = 0
-            if scenario:
-                for e in stats.entries.values():
-                    if e.name == scenario:
-                        fails += e.num_failures
-            else:
-                fails = total_failures
-            return fails / max(total_requests, 1)
+            return fails / reqs
         if metric == "throughput_rps":
-            return total_requests / max(duration_s, 1e-9)
+            reqs = (
+                total_requests
+                if scenario is None
+                else sum(e.num_requests for e in _request_entries(stats, scenario))
+            )
+            return reqs / max(duration_s, 1e-9)
         if metric == "quality_score":
             v = _snap_avg(custom_stats, scenario, "quality_score")
             if v is not None:
@@ -328,6 +383,7 @@ def _cost_per_success(stats, scenario, cost_by_scenario):
 
 
 def _stage_percentile(stage_stats, scenario, stage_name, metric_name):
+    """Percentile of stage-duration samples for (scenario, stage)."""
     key = (scenario, stage_name)
     d = stage_stats.get(key) or stage_stats.get((None, stage_name))
     if not d:
@@ -368,6 +424,7 @@ def send_alerts(alerts: list[dict], report: ThresholdReport, event: str, summary
 
 
 def _resolve_url(alert: dict) -> str | None:
+    """Resolve an alert's webhook URL from env or inline config."""
     env_name = alert.get("url_env")
     if env_name:
         return os.environ.get(env_name)
@@ -375,6 +432,7 @@ def _resolve_url(alert: dict) -> str | None:
 
 
 def _alert_payload(report: ThresholdReport, event: str, summary: dict) -> dict:
+    """Build the webhook JSON payload for an alert event."""
     failed = [
         {"rule": r.name, "metric": r.metric, "threshold": r.threshold, "actual": r.actual}
         for r in report.failed
@@ -393,6 +451,7 @@ def _alert_payload(report: ThresholdReport, event: str, summary: dict) -> dict:
 
 
 def _post_webhook(atype: str, url: str, payload: dict, alert: dict):
+    """POST the alert payload to a Slack/PagerDuty/generic endpoint."""
     if atype == "slack":
         failed = payload["failed_rules"]
         lines = (
@@ -416,4 +475,7 @@ def _post_webhook(atype: str, url: str, payload: dict, alert: dict):
         body = payload
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    urllib.request.urlopen(req, timeout=10).read()
+    from .security import check_url, checked_urlopen
+
+    check_url(url)  # webhooks are egress too — same URL policy applies
+    checked_urlopen(req, timeout=10).read()

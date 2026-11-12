@@ -1,4 +1,7 @@
-"""Layer dispatch — builds the right Layer for a target."""
+"""Layer dispatch — builds the right Layer for a target.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ class LayerFactory:
     """Caches layers + datasets + prompt pickers per worker process."""
 
     def __init__(self, config):
+        """LayerFactory(config): caches layers/datasets; installs security policy."""
         from ..security import set_policy
 
         set_policy(getattr(config, "security", None))
@@ -24,6 +28,7 @@ class LayerFactory:
         self._datasets: dict[str, Dataset] = {}
 
     def dataset(self, name: str) -> Dataset | None:
+        """Load (and worker-shard) a named dataset, cached per name."""
         if name in self._datasets:
             return self._datasets[name]
         cfg = self.config.datasets.get(name)
@@ -47,6 +52,7 @@ class LayerFactory:
         return ds
 
     def layer(self, target_name: str) -> Layer:
+        """Build (and cache) the Layer implementation for a target."""
         if target_name in self._layers:
             return self._layers[target_name]
         target = next(t for t in self.config.targets if t.name == target_name)

@@ -1,4 +1,7 @@
-"""OpenTelemetry instruments for llm_perf (GenAI semconv + custom metrics)."""
+"""OpenTelemetry instruments for llm_perf (GenAI semconv + custom metrics).
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,7 @@ from .setup import get_meter
 
 @lru_cache(maxsize=1)
 def _instruments():
+    """Create (once) all OTel instruments used across the framework."""
     m = get_meter("llm_perf")
     return {
         "request_duration": m.create_histogram(
@@ -85,18 +89,5 @@ def _instruments():
 
 
 def instruments():
+    """Return the cached instrument dict."""
     return _instruments()
-
-
-def attrs(**kw) -> dict:
-    return {k: v for k, v in kw.items() if v is not None}
-
-
-GENAI_ATTRS = {
-    "gen_ai.system": "gen_ai.system",
-    "gen_ai.request.model": "gen_ai.request.model",
-    "gen_ai.usage.input_tokens": "gen_ai.usage.input_tokens",
-    "gen_ai.usage.output_tokens": "gen_ai.usage.output_tokens",
-    "gen_ai.response.finish_reasons": "gen_ai.response.finish_reasons",
-    "gen_ai.operation.name": "gen_ai.operation.name",
-}

@@ -1,4 +1,7 @@
-"""Streaming helpers — re-export SSE machinery used by providers."""
+"""Streaming helpers — re-export SSE machinery used by providers.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 

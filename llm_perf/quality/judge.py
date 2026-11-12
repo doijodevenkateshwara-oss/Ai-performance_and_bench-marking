@@ -1,9 +1,13 @@
-"""LLM-as-judge quality scoring via any configured provider."""
+"""LLM-as-judge quality scoring via any configured provider.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
 import contextlib
 import json
+import os
 import random
 import re
 
@@ -27,6 +31,7 @@ CONTEXT_BLOCK = """[CONTEXT]
 
 
 def _build_judge_prompt(cfg: JudgeConfig, question: str, response: str, context: str | None = None) -> str:
+    """Render the judge prompt with rubric/question/response/context."""
     lo, hi = cfg.scale
     ctx = CONTEXT_BLOCK.format(context=context[:4000]) if context else ""
     return JUDGE_PROMPT.format(
@@ -73,7 +78,7 @@ def judge_score(
         params=params,
         stream=False,
         base_url=cfg.base_url,
-        api_key=cfg.api_key_env and __import__("os").environ.get(cfg.api_key_env),
+        api_key=os.environ.get(cfg.api_key_env) if cfg.api_key_env else None,
         timeout_s=timeout_s,
     )
     try:
@@ -91,8 +96,10 @@ class JudgeSampler:
     """Decides whether to run the judge on a given response."""
 
     def __init__(self, sample_rate: float, seed: int = 1234):
+        """JudgeSampler(sample_rate, seed): deterministic sampling RNG."""
         self.sample_rate = sample_rate
         self._rng = random.Random(seed)
 
     def should_judge(self) -> bool:
+        """True when this response should be sent to the LLM judge."""
         return self._rng.random() < self.sample_rate

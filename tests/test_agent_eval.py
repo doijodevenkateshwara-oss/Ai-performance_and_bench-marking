@@ -1,4 +1,7 @@
-"""Agent-stage evaluation: success, tool correctness, loop/failure detection."""
+"""Agent-stage evaluation: success, tool correctness, loop/failure detection.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ from llm_perf.providers.base import NormalizedResponse
 
 
 def _tc(name: str, arguments: str = '{"input": "q"}', tc_id: str = "call_1") -> dict:
+    """Build a fake tool_call dict."""
     return {
         "id": tc_id,
         "type": "function",
@@ -19,6 +23,7 @@ def _tc(name: str, arguments: str = '{"input": "q"}', tc_id: str = "call_1") -> 
 
 
 def _resp(text: str = "", tool_calls=None, ptok: int = 10, ctok: int = 5) -> NormalizedResponse:
+    """Build a fake NormalizedResponse for agent tests."""
     return NormalizedResponse(
         text=text,
         prompt_tokens=ptok,
@@ -29,21 +34,26 @@ def _resp(text: str = "", tool_calls=None, ptok: int = 10, ctok: int = 5) -> Nor
 
 
 def _stage(**kw) -> PipelineStage:
+    """Build an agent PipelineStage with the given tools."""
     return PipelineStage(stage="agent", llm={"provider": "openai", "model": "gpt-4o"}, **kw)
 
 
 def _ctx(row=None, pricing=None) -> StageContext:
+    """Build a StageContext for agent tests."""
     return StageContext("question?", row or {}, "sc", {}, pricing=pricing)
 
 
 @pytest.fixture
 def patch_llm(monkeypatch):
+    """Fixture: monkeypatch call_llm with scripted responses."""
     calls = []
 
     def _install(script):
+        """Install the fake call_llm."""
         it = iter(script)
 
         def fake(spec):
+            """Scripted call_llm fake."""
             calls.append(spec)
             try:
                 return next(it)
@@ -57,6 +67,7 @@ def patch_llm(monkeypatch):
 
 
 def test_agent_happy_path_success(patch_llm):
+    """Agent answers directly on the first step -> success."""
     patch_llm([_resp(tool_calls=[_tc("search", tc_id="c1")]), _resp("final answer here")])
     stage = _stage(tools=[{"name": "search", "type": "function", "import_path": "tests.agent_tools:echo"}])
     ctx = _ctx()
@@ -71,6 +82,7 @@ def test_agent_happy_path_success(patch_llm):
 
 def test_agent_loop_detection(patch_llm):
     # model repeats the identical tool call forever
+    """Repeated identical tool calls are flagged as loops."""
     patch_llm([_resp(tool_calls=[_tc("search", tc_id="c1")])] * 10)
     stage = _stage(
         max_iterations=6,
@@ -86,6 +98,7 @@ def test_agent_loop_detection(patch_llm):
 
 
 def test_agent_max_iterations_pass_config(patch_llm):
+    """on_max_iterations=pass counts hitting the cap as success."""
     patch_llm([_resp(tool_calls=[_tc("search", tc_id="c1")])] * 10)
     stage = _stage(
         max_iterations=3,
@@ -98,6 +111,7 @@ def test_agent_max_iterations_pass_config(patch_llm):
 
 
 def test_agent_unknown_tool(patch_llm):
+    """Calling an unconfigured tool counts as unknown_tool error."""
     patch_llm([_resp(tool_calls=[_tc("nonexistent", tc_id="c1")]), _resp("answer")])
     stage = _stage(tools=[])
     ctx = _ctx()
@@ -108,6 +122,7 @@ def test_agent_unknown_tool(patch_llm):
 
 
 def test_agent_expected_field_match(patch_llm):
+    """success.expected_field must match the final answer."""
     patch_llm([_resp("The capital of France is Paris.")])
     stage = _stage(success=AgentSuccessConfig(expected_field="expected", match="contains"))
     ctx = _ctx(row={"expected": "Paris"})
@@ -121,6 +136,7 @@ def test_agent_expected_field_match(patch_llm):
 
 
 def test_agent_require_tool_use(patch_llm):
+    """require_tool_use fails runs that never call a tool."""
     patch_llm([_resp("answer without tools")])
     stage = _stage(success=AgentSuccessConfig(require_tool_use=True))
     ctx = _ctx()
@@ -129,6 +145,7 @@ def test_agent_require_tool_use(patch_llm):
 
 
 def test_agent_empty_final_fails(patch_llm):
+    """An empty final answer is always a failure."""
     patch_llm([_resp("")])
     ctx = _ctx()
     run_stage_agent(_stage(), ctx)
@@ -138,6 +155,7 @@ def test_agent_empty_final_fails(patch_llm):
 
 def test_agent_cost_cap(patch_llm):
     # expensive pricing -> first step already exceeds cap
+    """Exceeding max_cost_usd terminates the loop early."""
     patch_llm([_resp(tool_calls=[_tc("search", tc_id="c1")])] * 5)
     stage = _stage(
         max_iterations=6,
@@ -151,6 +169,7 @@ def test_agent_cost_cap(patch_llm):
 
 
 def test_run_pipeline_propagates_agent_metrics(patch_llm):
+    """Agent eval metrics land on ctx.stage_metrics."""
     patch_llm([_resp("done answer")])
     stage = _stage()
     ctx = run_pipeline([stage], "q?", {}, "sc", {}, pricing=None)

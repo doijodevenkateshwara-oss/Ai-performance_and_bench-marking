@@ -2,6 +2,9 @@
 
 The CLI writes/uses this module so `locust -f llm_perf.locustfile` works with
 the standard Locust CLI (web UI, --headless, --master/--worker).
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ if _config.load.uses_shape:
         """Drives ramp-up / steady-state / ramp-down (and step profiles)."""
 
         def __init__(self):
+            """LLMPerfShape(): precomputes the phase schedule for this run."""
             super().__init__()
             self._phases = build_phases(_config.load)
             self._idx = 0
@@ -51,6 +55,7 @@ if _config.load.uses_shape:
             self._run_time_cap = _seconds(_config.load.run_time, 0.0) or None
 
         def _current_phase(self):
+            """Return the active phase for the current run time."""
             now = self.get_run_time()
             while self._idx < len(self._phases):
                 p = self._phases[self._idx]
@@ -67,6 +72,7 @@ if _config.load.uses_shape:
             return None
 
         def _capacity_breached(self) -> bool:
+            """True when the capacity profile's error ceiling is exceeded."""
             if _config.load.profile != "capacity" or self.runner is None:
                 return False
             try:
@@ -79,6 +85,7 @@ if _config.load.uses_shape:
                 return False
 
         def tick(self):
+            """LoadTestShape.tick: current (users, spawn_rate) or None to stop."""
             if self._capacity_breached():
                 print("[llm-perf] capacity profile: error-rate breach, stopping early")
                 return None
@@ -97,6 +104,7 @@ _lag_probe = None
 
 @events.test_start.add_listener
 def _on_test_start(environment, **kw):
+    """Locust test_start hook: OTel setup + resource samplers."""
     global _test_start_ts, _resource_sampler, _lag_probe
     import time
 
@@ -114,17 +122,31 @@ def _on_test_start(environment, **kw):
         _lag_probe.start()
 
 
+def _is_worker(environment) -> bool:
+    """True on distributed workers — they must not write reports/alerts."""
+    try:
+        from locust.runners import WorkerRunner
+
+        return isinstance(environment.runner, WorkerRunner)
+    except Exception:
+        return False
+
+
 @events.test_stop.add_listener
 def _on_test_stop(environment, **kw):
+    """Locust test_stop hook: stop samplers, write reports, gate exit code."""
     if _resource_sampler is not None:
         _resource_sampler.stop()
     if _lag_probe is not None:
         _lag_probe.stop()
+    if _is_worker(environment):
+        return  # only the master/local runner aggregates reports + alerts
     _run_reports_and_thresholds(environment)
 
 
 @events.quitting.add_listener
 def _on_quitting(environment, **kw):
+    """Locust quitting hook: flush/shutdown OTel exporters."""
     otel_shutdown()
 
 
@@ -195,19 +217,29 @@ def _run_reports_and_thresholds(environment) -> None:
         if notified:
             print(f"[llm-perf] alerts sent via: {', '.join(set(notified))}")
 
-    # exit code for CI
-    if trep and not trep.all_passed and _config.thresholds.on_fail == "fail":
-        print("[llm-perf] THRESHOLD FAILURES — exiting nonzero")
-        import os
-
-        os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
+    # exit code for CI — three-state rules: FAIL breaches + NOT_EVALUATED policy
+    if trep:
+        if trep.should_fail_ci:
+            reasons = []
+            if trep.failed and _config.thresholds.on_fail == "fail":
+                reasons.append(f"{len(trep.failed)} threshold failure(s)")
+            if trep.not_evaluated and _config.thresholds.on_not_evaluated == "fail":
+                reasons.append(
+                    f"{len(trep.not_evaluated)} rule(s) not evaluated " "(thresholds.on_not_evaluated=fail)"
+                )
+            print(f"[llm-perf] THRESHOLD FAILURES ({'; '.join(reasons)}) — exiting nonzero")
+            os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
+        elif trep.should_warn:
+            names = ", ".join(r.name for r in trep.not_evaluated[:10])
+            print(
+                f"[llm-perf] WARNING: {len(trep.not_evaluated)} threshold rule(s) "
+                f"not evaluated (no data): {names}"
+            )
 
     # regression gate
     reg = report.get("regression") or {}
     if reg.get("regressions") and _config.report.regression.on_fail == "fail":
         print(f"[llm-perf] {len(reg['regressions'])} REGRESSION(S) — exiting nonzero")
-        import os
-
         os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
 
 

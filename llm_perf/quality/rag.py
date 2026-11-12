@@ -1,4 +1,7 @@
-"""RAG-specific quality: context recall against dataset expected_context."""
+"""RAG-specific quality: context recall against dataset expected_context.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 

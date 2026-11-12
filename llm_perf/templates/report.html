@@ -12,6 +12,7 @@
   th { background: #f5f5f7; }
   td:first-child, th:first-child { text-align: left; }
   .pass { color: #1a7f37; font-weight: 600; } .fail { color: #cf222e; font-weight: 600; }
+  .skip { color: #57606a; font-weight: 600; }
   .warn { color: #9a6700; font-weight: 600; }
   .meta { color:#666; font-size:0.85rem; }
   .verdict { padding: 0.6rem 0.9rem; border-radius: 6px; display:inline-block; margin-bottom:1rem; font-weight:600; }
@@ -46,7 +47,7 @@
 </p>
 
 {% if es.verdict %}
-<div class="verdict {{ 'ok' if es.verdict == 'PASS' else ('warn' if es.verdict == 'WARN' else 'bad') }}">
+<div class="verdict {{ 'ok' if es.verdict == 'PASS' else ('warn' if es.verdict in ('WARN', 'INCOMPLETE') else 'bad') }}">
   {{ es.verdict }}{% if es.headline_scenario %} — headline scenario: {{ es.headline_scenario }}{% endif %}
 </div>
 {% endif %}
@@ -279,17 +280,21 @@
 
 {% if report.thresholds.all_passed is not none %}
 <h2>Threshold verdicts</h2>
-<div class="verdict {{ 'ok' if report.thresholds.all_passed else 'bad' }}">
-  {% if report.thresholds.all_passed %}All thresholds passed{% else %}Threshold failures: {{ report.thresholds.failed | join(', ') }}{% endif %}
+{% set ne = report.thresholds.not_evaluated | default([], true) | length %}
+<div class="verdict {{ 'ok' if report.thresholds.all_passed and not ne else ('bad' if not report.thresholds.all_passed else 'warn') }}">
+  {% if not report.thresholds.all_passed %}Threshold failures: {{ report.thresholds.failed | join(', ') }}
+  {% elif ne %}All evaluated thresholds passed — {{ ne }} rule(s) NOT EVALUATED (no data)
+  {% else %}All thresholds passed{% endif %}
 </div>
 <table>
 <tr><th>rule</th><th>metric</th><th>comparator</th><th>threshold</th><th>actual</th><th>result</th></tr>
 {% for r in report.thresholds.rules %}
+{% set st = r.status | default(('pass' if r.passed else ('fail' if r.passed is sameas false else 'not_evaluated')), true) %}
 <tr>
   <td>{{ r.rule }}</td><td>{{ r.metric }}</td><td>{{ r.comparator }}</td>
   <td>{{ r.threshold }}</td><td>{{ "%.2f"|format(r.actual) if r.actual is not none else "n/a" }}</td>
-  <td class="{{ 'pass' if r.passed else ('fail' if r.passed is sameas false else '') }}">
-    {{ 'PASS' if r.passed else ('FAIL' if r.passed is sameas false else 'SKIP') }}</td>
+  <td class="{{ 'pass' if st == 'pass' else ('fail' if st == 'fail' else 'skip') }}">
+    {{ st | upper }}</td>
 </tr>
 {% endfor %}
 </table>

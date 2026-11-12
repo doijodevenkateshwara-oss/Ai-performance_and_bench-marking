@@ -1,4 +1,7 @@
-"""Azure OpenAI provider — OpenAI wire format with api-key header + api-version."""
+"""Azure OpenAI provider — OpenAI wire format with api-key header + api-version.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -7,15 +10,20 @@ from .openai import OpenAIAdapter
 
 
 class AzureAdapter(OpenAIAdapter):
+    """Azure OpenAI: OpenAI wire format + api-key header + api-version."""
+
     name = "azure"
 
     def default_base_url(self):
+        """None — Azure requires an explicit resource endpoint."""
         return None  # must be configured
 
     def default_endpoint(self, stream: bool) -> str:
+        """Chat completions path (deployments variant handled in build_request)."""
         return "/chat/completions"
 
     def build_request(self, spec: RequestSpec):
+        """Rewrite URL/headers/body for Azure auth and deployment routing."""
         url, headers, body = super().build_request(spec)
         # Azure auth: api-key header, not Bearer
         headers.pop("Authorization", None)

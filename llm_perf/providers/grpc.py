@@ -1,11 +1,13 @@
-"""gRPC provider — dynamic stubs compiled from .proto files."""
+"""gRPC provider — dynamic stubs compiled from .proto files.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
 import contextlib
 import importlib
 import sys
-import time
 from pathlib import Path
 
 from .base import NormalizedResponse, RequestSpec
@@ -33,7 +35,7 @@ def compile_proto(
     if rc != 0:
         raise RuntimeError(f"protoc failed for {proto_path} (rc={rc})")
     # add out_dir to sys.path for generated imports
-    sys.path.insert(0, str(out_dir.resolve()))
+    _ensure_on_syspath(out_dir)
     return str(out_dir.resolve())
 
 
@@ -51,47 +53,35 @@ def get_triton_proto_path(workdir: Path | None = None) -> Path:
     return dest
 
 
-def load_stub(
-    proto_path: str | Path, service: str, method: str, tls: bool = True, metadata: dict | None = None
-):
-    """Compile proto (if needed) and return a callable method stub factory."""
-    proto_path = Path(proto_path)
-    compile_proto(proto_path)
-    module_name = proto_path.stem + "_pb2_grpc"
-    pb2_mod = importlib.import_module(proto_path.stem + "_pb2")
-    grpc_mod = importlib.import_module(module_name)
-
-    service_parts = service.split(".")
-    # find stub class: try progressively qualified names
-    stub_cls = None
-    for i in range(len(service_parts), 0, -1):
-        candidate = "".join(p.title() for p in service_parts[:i]) + "Stub"
-        stub_cls = getattr(grpc_mod, candidate, None)
-        if stub_cls:
-            break
-    if stub_cls is None:
-        # fallback: any *Stub class in module
-        for attr in dir(grpc_mod):
-            if attr.endswith("Stub"):
-                stub_cls = getattr(grpc_mod, attr)
-                break
-    if stub_cls is None:
-        raise RuntimeError(f"could not locate stub class for service {service!r} in {module_name}")
-
-    grpc_mod.grpc.insecure_channel("unused") if not tls else None
-    return stub_cls, pb2_mod, grpc_mod
+def _ensure_on_syspath(path: Path) -> None:
+    """Add a directory to sys.path once (for generated stubs)."""
+    s = str(path.resolve())
+    if s not in sys.path:
+        sys.path.insert(0, s)
 
 
 class GrpcAdapter:
+    """gRPC provider: compiles .proto stubs and invokes RPCs dynamically."""
+
     name = "grpc"
 
     def __init__(self):
+        """GrpcAdapter(): per-instance stub cache."""
         self._channels = {}
         self._stubs = {}
 
     def _get_stub(self, spec: RequestSpec):
+        """Compile proto, open a channel, and return (rpc, pb2, metadata)."""
         gcfg = spec.extra.get("grpc", {})
-        key = (gcfg.get("proto_path"), gcfg.get("service"), gcfg.get("tls"), spec.base_url)
+        # method must be in the key — two targets sharing proto/service/host
+        # but calling different RPCs need different cached stubs
+        key = (
+            gcfg.get("proto_path"),
+            gcfg.get("service"),
+            gcfg.get("method"),
+            gcfg.get("tls"),
+            spec.base_url,
+        )
         if key in self._stubs:
             return self._stubs[key]
         import grpc
@@ -101,7 +91,7 @@ class GrpcAdapter:
             proto_path = get_triton_proto_path()
         compile_proto(proto_path)
         stem = Path(proto_path).stem
-        sys.path.insert(0, str((Path(proto_path).parent / "_generated").resolve()))
+        _ensure_on_syspath(Path(proto_path).parent / "_generated")
         pb2_mod = importlib.import_module(f"{stem}_pb2")
         grpc_mod = importlib.import_module(f"{stem}_pb2_grpc")
 
@@ -136,6 +126,7 @@ class GrpcAdapter:
         return self._stubs[key]
 
     def call(self, spec: RequestSpec) -> NormalizedResponse:
+        """Build the request message, invoke the RPC, extract text/usage."""
         rpc, pb2_mod, md = self._get_stub(spec)
         # build request message: map prompt into configured fields
         fields = spec.extra.get("grpc", {}).get("request_fields", {}) or {}
@@ -162,13 +153,11 @@ class GrpcAdapter:
             elif name == model_field or name in ("model", "model_name"):
                 with contextlib.suppress(Exception):
                     setattr(msg, name, spec.params.get("model", ""))
-        start = time.monotonic()
         try:
             metadata = list(md.items())
             resp = rpc(msg, metadata=metadata, timeout=spec.timeout_s)
         except Exception as e:
             return NormalizedResponse(text="", raw={"error": str(e)})
-        elapsed = time.monotonic() - start
         # extract text via response_fields mapping
         rfields = spec.extra.get("grpc", {}).get("response_fields", {}) or {}
         text_path = rfields.get("text", "text")
@@ -182,11 +171,11 @@ class GrpcAdapter:
             completion_tokens=c,
             total_tokens=p + c,
             raw=str(resp)[:4000],
-            stage_metrics={"e2e_s": elapsed},
         )
 
 
 def _extract_field(msg, path: str):
+    """Dotted-path getattr over a protobuf response message."""
     if not path:
         return None
     cur = msg
@@ -198,6 +187,7 @@ def _extract_field(msg, path: str):
 
 
 def _dig(obj, key):
+    """Dict-key or attribute lookup helper."""
     if isinstance(obj, dict):
         return obj.get(key)
     return getattr(obj, key, None)

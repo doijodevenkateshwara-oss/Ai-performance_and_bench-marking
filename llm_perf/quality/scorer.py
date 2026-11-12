@@ -1,4 +1,7 @@
-"""Combine heuristic + judge + rag signals into a final quality score."""
+"""Combine heuristic + judge + rag signals into a final quality score.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -11,6 +14,8 @@ from .judge import JudgeSampler, judge_score
 
 @dataclass
 class QualityResult:
+    """Combined quality outcome: score, pass, per-signal details."""
+
     score: float | None = None  # normalized 0..1
     passed: bool | None = None
     heuristic: HeuristicReport | None = None
@@ -31,6 +36,7 @@ def evaluate_quality(
     expected_context: str | None = None,
     judge_sampler: JudgeSampler | None = None,
 ) -> QualityResult:
+    """Score a response via heuristics + optional judge + RAG recall."""
     if cfg is None:
         return QualityResult()
     res = QualityResult()

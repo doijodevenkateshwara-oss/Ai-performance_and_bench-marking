@@ -1,8 +1,10 @@
-"""Pydantic configuration models for llm-perf YAML configs."""
+"""Pydantic configuration models for llm-perf YAML configs.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,6 +17,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class OtelConfig(BaseModel):
+    """OpenTelemetry export settings (endpoint, service name, sampling)."""
+
     enabled: bool = True
     endpoint: str | None = None  # OTLP gRPC endpoint; falls back to env/default
     service_name: str = "llm-perf"
@@ -31,6 +35,8 @@ class PrometheusConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
+    """Groups OTel and legacy Prometheus settings."""
+
     otel: OtelConfig = Field(default_factory=OtelConfig)
     prometheus: PrometheusConfig = Field(default_factory=PrometheusConfig)
 
@@ -60,6 +66,8 @@ class SecurityConfig(BaseModel):
     dataset_max_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
     dataset_max_rows: int = Field(default=1_000_000, gt=0)
     dataset_timeout_s: float = Field(default=30.0, gt=0)
+    # cap on bytes read from agent-tool / vector-store HTTP responses
+    http_max_response_bytes: int = Field(default=64 * 1024 * 1024, gt=0)
     # scrub credential-shaped strings from error stats / trace attributes
     redact: bool = True
     # set true to acknowledge the config is trusted and silence warnings
@@ -72,6 +80,8 @@ class SecurityConfig(BaseModel):
 
 
 class DatasetSample(BaseModel):
+    """Dataset subsampling strategy (first/random/weighted + count/seed)."""
+
     strategy: Literal["first", "random", "weighted"] = "first"
     count: int | None = None
     seed: int = 42
@@ -79,6 +89,8 @@ class DatasetSample(BaseModel):
 
 
 class DatasetConfig(BaseModel):
+    """A named dataset source: location, format, column mapping, sampling."""
+
     source: str  # path, URL, s3://, gs://
     format: Literal["yaml", "csv", "jsonl"] | None = None  # auto-detect
     columns: dict[str, str] = Field(default_factory=dict)  # logical -> source field
@@ -88,6 +100,7 @@ class DatasetConfig(BaseModel):
     @field_validator("source")
     @classmethod
     def _source_nonempty(cls, v: str) -> str:
+        """Reject empty dataset sources."""
         if not v:
             raise ValueError("dataset source must not be empty")
         return v
@@ -99,17 +112,23 @@ class DatasetConfig(BaseModel):
 
 
 class AzureConfig(BaseModel):
+    """Azure OpenAI specifics: api-version and deployment field name."""
+
     api_version: str = "2024-10-21"
     deployment_field: str = "model"
 
 
 class AwsConfig(BaseModel):
+    """AWS Bedrock auth settings: region, credential style, profile."""
+
     region: str | None = None
     auth: Literal["env", "profile", "iam_role"] = "env"
     profile: str | None = None
 
 
 class GrpcConfig(BaseModel):
+    """gRPC target settings: proto, service/method, TLS, metadata, field maps."""
+
     proto_path: str | None = None  # None -> bundled triton proto
     service: str = "inference.GRPCInferenceService"
     method: str = "ModelInfer"
@@ -119,13 +138,9 @@ class GrpcConfig(BaseModel):
     response_fields: dict[str, str] = Field(default_factory=dict)
 
 
-class ProviderParams(BaseModel):
-    """Provider-specific extra config, kept flexible."""
-
-    model_config = {"extra": "allow"}
-
-
 class BaseTarget(BaseModel):
+    """Fields shared by every target type (name, weight, timeouts, retries, vars)."""
+
     name: str
     layer: Literal["llm_api", "pipeline", "app_endpoint", "app_object"] = "llm_api"
     weight: float = 1.0  # used when referenced from scenarios; also default scenario weight
@@ -139,12 +154,15 @@ class BaseTarget(BaseModel):
     @field_validator("name")
     @classmethod
     def _name(cls, v: str) -> str:
+        """Validate target names (alnum plus _ and -)."""
         if not v or not v.replace("_", "").replace("-", "").isalnum():
             raise ValueError(f"invalid target name: {v!r}")
         return v
 
 
 class LlmApiTarget(BaseTarget):
+    """Direct vendor-API target (OpenAI/Anthropic/Azure/Bedrock/HTTP/gRPC)."""
+
     layer: Literal["llm_api"] = "llm_api"
     provider: Literal["openai", "anthropic", "azure", "bedrock", "http", "grpc"]
     transport: Literal["http", "grpc"] = "http"
@@ -164,6 +182,7 @@ class LlmApiTarget(BaseTarget):
 
     @model_validator(mode="after")
     def _check_endpoint(self):
+        """Apply provider default base URLs and require Azure's endpoint."""
         if self.provider in ("openai", "anthropic", "azure", "bedrock") and not self.base_url:
             # sensible defaults
             defaults = {
@@ -193,6 +212,8 @@ class AgentSuccessConfig(BaseModel):
 
 
 class PipelineStage(BaseModel):
+    """One stage of a declarative pipeline: retrieve/rerank/generate/agent."""
+
     stage: Literal["retrieve", "rerank", "generate", "agent"]
     # retrieve
     vector_store: dict[str, Any] | None = None
@@ -213,12 +234,16 @@ class PipelineStage(BaseModel):
 
 
 class PipelineTarget(BaseTarget):
+    """Declarative RAG/agent pipeline target bound to a dataset."""
+
     layer: Literal["pipeline"] = "pipeline"
     dataset: str
     pipeline: list[PipelineStage]
 
 
 class AppEndpointTarget(BaseTarget):
+    """Black-box application endpoint target over HTTP or gRPC."""
+
     layer: Literal["app_endpoint"] = "app_endpoint"
     transport: Literal["http", "grpc"] = "http"
     base_url: str
@@ -234,6 +259,8 @@ class AppEndpointTarget(BaseTarget):
 
 
 class AppObjectTarget(BaseTarget):
+    """In-process application object target (LangChain/LlamaIndex/generic)."""
+
     layer: Literal["app_object"] = "app_object"
     framework: Literal["langchain", "llamaindex", "generic"] = "generic"
     python_path: str  # "module.path:factory_fn"
@@ -252,6 +279,8 @@ Target = LlmApiTarget | PipelineTarget | AppEndpointTarget | AppObjectTarget
 
 
 class HeuristicChecks(BaseModel):
+    """Zero-cost response checks: patterns, length, JSON validity, exact match."""
+
     required_patterns: list[str] = Field(default_factory=list)
     forbidden_patterns: list[str] = Field(default_factory=list)
     json_valid: bool = False
@@ -263,6 +292,8 @@ class HeuristicChecks(BaseModel):
 
 
 class JudgeConfig(BaseModel):
+    """LLM-as-judge settings: provider, model, rubric, score scale."""
+
     provider: str = "openai"
     model: str | None = None
     rubric: str = "Score the response quality from 1 to 5."
@@ -273,10 +304,14 @@ class JudgeConfig(BaseModel):
 
 
 class RagQualityConfig(BaseModel):
+    """RAG-specific quality hints (context recall)."""
+
     context_recall_min: float | None = None  # informational threshold hint
 
 
 class QualityConfig(BaseModel):
+    """Per-scenario quality evaluation: sampling, heuristics, judge, RAG."""
+
     sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     heuristics: HeuristicChecks = Field(default_factory=HeuristicChecks)
     judge: JudgeConfig | None = None
@@ -284,6 +319,8 @@ class QualityConfig(BaseModel):
 
 
 class ScenarioConfig(BaseModel):
+    """A named load scenario binding a target to weight/think-time/quality."""
+
     name: str
     target: str
     weight: float = 1.0
@@ -295,6 +332,8 @@ class ScenarioConfig(BaseModel):
 
 
 class LoadStage(BaseModel):
+    """One explicit load stage (users, spawn rate, duration) for custom profiles."""
+
     users: int
     spawn_rate: float | None = None
     duration: str  # e.g. "2m"
@@ -306,6 +345,8 @@ LoadProfile = Literal[
 
 
 class LoadConfig(BaseModel):
+    """Load shape: users/spawn/duration, optional profile/stages/steps."""
+
     users: int = 1
     spawn_rate: float = 1.0
     duration: str | None = None
@@ -327,6 +368,7 @@ class LoadConfig(BaseModel):
 
     @property
     def uses_shape(self) -> bool:
+        """True when a profile or explicit stages drive a LoadTestShape."""
         return self.profile is not None or bool(self.stages)
 
 
@@ -360,15 +402,24 @@ class ThresholdRule(BaseModel):
 
 
 class ThresholdsConfig(BaseModel):
+    """SLO rules (global + per-scenario), failure policy, and alerts."""
+
     global_: ThresholdRule | None = Field(default=None, alias="global")
     scenarios: dict[str, ThresholdRule] = Field(default_factory=dict)
     on_fail: Literal["fail", "warn"] = "fail"
+    # how CI treats rules that could not be evaluated (no data):
+    #   pass -> treated as pass (legacy behavior)
+    #   warn -> reported as a warning, exit code unaffected
+    #   fail -> nonzero exit like a real failure
+    on_not_evaluated: Literal["pass", "warn", "fail"] = "pass"
     alerts: list[dict[str, Any]] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
 
 class PricingConfig(BaseModel):
+    """Per-1k-token pricing used for cost estimates."""
+
     input_per_1k: float = 0.0
     output_per_1k: float = 0.0
     currency: str = "USD"
@@ -402,6 +453,8 @@ class ResourceWarnConfig(BaseModel):
 
 
 class ReportConfig(BaseModel):
+    """Report outputs, history/baseline/regression, resource monitoring."""
+
     formats: list[Literal["csv", "json", "html"]] = Field(default_factory=lambda: ["csv", "json", "html"])
     output_dir: str = "results"
     percentiles: list[float] = Field(default_factory=lambda: [50.0, 90.0, 95.0, 99.0])
@@ -422,6 +475,8 @@ class ReportConfig(BaseModel):
 
 
 class PerfConfig(BaseModel):
+    """Root configuration model for a whole test run."""
+
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     datasets: dict[str, DatasetConfig] = Field(default_factory=dict)
@@ -433,6 +488,7 @@ class PerfConfig(BaseModel):
 
     @model_validator(mode="after")
     def _cross_check(self):
+        """Cross-validate scenario->target references and dataset sources."""
         target_names = {t.name for t in self.targets}
         for s in self.scenarios:
             if s.target not in target_names:
@@ -444,6 +500,7 @@ class PerfConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> PerfConfig:
+        """Parse a YAML file into a validated PerfConfig."""
         path = Path(path)
         raw = yaml.safe_load(path.read_text()) or {}
         # allow shorthand: top-level targets may be list of dicts w/ layer inference
@@ -478,15 +535,9 @@ def _normalize(raw: dict, base_dir: Path) -> dict:
             if not p.is_absolute():
                 ds["source"] = str((base_dir / p).resolve())
     for t in raw.get("targets", []) or []:
-        for _key in ("request_template",):
-            pass  # templates are file paths resolved lazily by tasks
         for st in t.get("pipeline", []) or []:
             if st.get("template"):
                 p = Path(st["template"])
                 if not p.is_absolute():
                     st["template"] = str((base_dir / p).resolve())
     return raw
-
-
-def env_or_none(var: str) -> str | None:
-    return os.environ.get(var)

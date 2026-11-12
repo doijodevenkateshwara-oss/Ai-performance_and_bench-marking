@@ -3,6 +3,9 @@
 A Phase is (target_users, spawn_rate, duration_s, label). Locust's
 LoadTestShape returns the current phase's target/spawn_rate each tick and
 handles the actual ramping, so phases only describe *levels to hold*.
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -14,6 +17,8 @@ from .config import LoadConfig
 
 @dataclass
 class Phase:
+    """One load phase: target users, spawn rate, duration, label."""
+
     target_users: int
     spawn_rate: float
     duration_s: float
@@ -41,6 +46,7 @@ def _seconds(value: str | None, default: float) -> float:
 
 
 def _spawn(load: LoadConfig) -> float:
+    """Effective spawn rate from load config (default 1.0)."""
     return float(load.spawn_rate or 1.0)
 
 

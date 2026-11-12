@@ -1,10 +1,12 @@
-"""Generic HTTP provider — Jinja2 request template + JSON-path response mapping."""
+"""Generic HTTP provider — Jinja2 request template + JSON-path response mapping.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
 import json
 import re
-import time
 
 from jinja2 import Template
 
@@ -17,11 +19,14 @@ def _jsonpath(obj, path: str):
     for part in re.split(r"\.|\[|\]", path):
         if part == "":
             continue
-        if isinstance(cur, list):
-            cur = cur[int(part)]
-        elif isinstance(cur, dict):
-            cur = cur.get(part)
-        else:
+        try:
+            if isinstance(cur, list):
+                cur = cur[int(part)]
+            elif isinstance(cur, dict):
+                cur = cur.get(part)
+            else:
+                return None
+        except (ValueError, IndexError, TypeError):
             return None
         if cur is None:
             return None
@@ -29,22 +34,29 @@ def _jsonpath(obj, path: str):
 
 
 class HttpAdapter:
+    """Generic HTTP provider with Jinja2 request template + JSON-path mapping."""
+
     name = "http"
 
     def default_base_url(self):
+        """None — base_url must be configured."""
         return None
 
     def default_endpoint(self, stream: bool) -> str:
+        """No default path; uses configured endpoint."""
         return ""
 
     def build_request(self, spec: RequestSpec):
+        """Render template/body and assemble the request URL."""
         headers = {"Content-Type": "application/json"}
         if spec.api_key:
             headers["Authorization"] = f"Bearer {spec.api_key}"
         headers.update(spec.extra.get("headers", {}))
         template = spec.extra.get("request_template")
         if template:
-            body = Template(template).render(prompt=spec.prompt, **spec.params)
+            # merge so a params key named "prompt" can't collide with the kwarg
+            ctx = {"prompt": spec.prompt, **spec.params}
+            body = Template(template).render(**ctx)
             payload = body.encode() if isinstance(body, str) else body
         else:
             payload = json.dumps({"prompt": spec.prompt, **spec.params}).encode()
@@ -54,7 +66,7 @@ class HttpAdapter:
         return url, headers, payload
 
     def parse_response(self, status, headers, body, stream_iter=None) -> NormalizedResponse:
-        start = time.monotonic()
+        """Extract text/tokens/model via the configured JSON paths."""
         try:
             obj = json.loads(body)
         except (json.JSONDecodeError, TypeError):
@@ -88,12 +100,13 @@ class HttpAdapter:
             total_tokens=p + c,
             model=str(model) if model else None,
             raw=obj,
-            stage_metrics={"e2e_s": time.monotonic() - start},
         )
 
     def __init__(self):
+        """HttpAdapter(): empty response-mapping store."""
         self._current_mapping: dict = {}
 
     def with_mapping(self, mapping: dict) -> HttpAdapter:
+        """Return self with a response-field mapping installed."""
         self._current_mapping = mapping or {}
         return self

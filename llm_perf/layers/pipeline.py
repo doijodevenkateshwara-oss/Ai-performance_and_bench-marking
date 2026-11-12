@@ -1,4 +1,7 @@
-"""Layer 2a: declarative pipeline (RAG/agent) targets."""
+"""Layer 2a: declarative pipeline (RAG/agent) targets.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -13,7 +16,10 @@ from .base import LayerResult
 
 
 class PipelineLayer:
+    """Declarative pipeline layer wrapping run_pipeline()."""
+
     def __init__(self, target: PipelineTarget, picker: PromptPicker, pricing=None):
+        """PipelineLayer(target, picker, pricing)."""
         self.target = target
         self.picker = picker
         self.pricing = pricing
@@ -21,6 +27,7 @@ class PipelineLayer:
     def run(
         self, prompt: str, row: dict | None, scenario_params: dict, scenario_name: str = "default"
     ) -> LayerResult:
+        """Run the stage pipeline, record response + agent-eval metrics."""
         t = self.target
         question = prompt or (row or {}).get("prompt") or (row or {}).get("question") or ""
         # build a synthetic NormalizedResponse-like usage record from ctx afterwards
@@ -37,9 +44,8 @@ class PipelineLayer:
 
                 log_request_event(scenario_name, e2e * 1000, exception=str(e))
                 span.set_attribute("error", True)
-                return LayerResult(error=str(e), row=row, stage_metrics={"e2e_s": e2e})
+                return LayerResult(error=str(e), row=row)
             e2e = time.monotonic() - start
-            stage_metrics = {"e2e_s": e2e, **(ctx.stage_metrics or {})}
             # agent-stage evaluation metrics (success/tool/loop counters)
             if ctx.agent_eval:
                 from ..metrics import record_agent_eval
@@ -68,6 +74,5 @@ class PipelineLayer:
                 output_text=ctx.output_text,
                 response=resp,
                 row=row,
-                stage_metrics=stage_metrics,
                 retrieved_texts=ctx.context_texts,
             )

@@ -1,4 +1,7 @@
-"""OpenAI-compatible provider (chat completions, responses API, embeddings)."""
+"""OpenAI-compatible provider (chat completions, responses API, embeddings).
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -9,19 +12,25 @@ from .http_common import auth_headers, openai_sse_extractor, stream_sse, stream_
 
 
 class OpenAIAdapter:
+    """OpenAI chat-completions / responses-API provider adapter."""
+
     name = "openai"
 
     def __init__(self, api_style: str = "chat"):
         # api_style: "chat" (chat/completions) or "responses"
+        """OpenAIAdapter(api_style): 'chat' or 'responses'."""
         self.api_style = api_style
 
     def default_base_url(self):
+        """Default OpenAI API base URL."""
         return "https://api.openai.com/v1"
 
     def default_endpoint(self, stream: bool) -> str:
+        """Endpoint path for the configured api_style."""
         return "/chat/completions" if self.api_style == "chat" else "/responses"
 
     def build_request(self, spec: RequestSpec):
+        """Assemble chat/responses body with supported param passthrough."""
         headers = auth_headers(spec)
         model = spec.params.get("model", "gpt-4o-mini")
         if self.api_style == "chat":
@@ -66,6 +75,7 @@ class OpenAIAdapter:
     def parse_response(
         self, status, headers, body, stream_iter=None, stream_mode: str = "full"
     ) -> NormalizedResponse:
+        """Parse unary or SSE OpenAI responses into NormalizedResponse."""
         if stream_iter is not None:
             sr = stream_sse(
                 stream_iter, openai_sse_extractor, first_token_only=(stream_mode == "first_token")

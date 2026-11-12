@@ -1,4 +1,7 @@
-"""Subprocess runner for the e2e Locust test. Usage: e2e_runner.py <base_url>"""
+"""Subprocess runner for the e2e Locust test. Usage: e2e_runner.py <base_url>
+
+Author: Venkateshwara Doijode
+"""
 
 import json
 import sys

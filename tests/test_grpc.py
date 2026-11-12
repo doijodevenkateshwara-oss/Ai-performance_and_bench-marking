@@ -1,9 +1,13 @@
-"""gRPC proto compilation test using the bundled Triton proto."""
+"""gRPC proto compilation test using the bundled Triton proto.
+
+Author: Venkateshwara Doijode
+"""
 
 from pathlib import Path
 
 
 def test_bundled_proto_compiles(tmp_path):
+    """The bundled Triton proto compiles with grpc_tools."""
     proto = Path("protos/inference.proto")
     assert proto.exists()
     from grpc_tools import protoc
@@ -25,6 +29,7 @@ def test_bundled_proto_compiles(tmp_path):
 
 
 def test_triton_proto_path():
+    """get_triton_proto_path resolves the bundled proto."""
     from llm_perf.providers.grpc import get_triton_proto_path
 
     p = get_triton_proto_path(Path("/tmp/llm_perf_protos"))

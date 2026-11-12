@@ -1,13 +1,19 @@
-"""Report aggregation tests with fake Locust stats."""
+"""Report aggregation tests with fake Locust stats.
+
+Author: Venkateshwara Doijode
+"""
 
 from llm_perf.config import PerfConfig
 from llm_perf.reporters import aggregate, write_reports
 
 
 class FakeEntry:
+    """Minimal StatsEntry stand-in for aggregate tests."""
+
     def __init__(
         self, name, method, requests=50, failures=2, avg=1200.0, p50=900, p90=2000, p95=2500, p99=4000
     ):
+        """FakeEntry(num_requests, num_failures, times): canned stats entry."""
         self.name = name
         self.method = method
         self.num_requests = requests
@@ -18,11 +24,15 @@ class FakeEntry:
         self._p = {50: p50, 90: p90, 95: p95, 99: p99}
 
     def get_response_time_percentile(self, pct):
+        """Return a canned percentile."""
         return self._p[int(pct)]
 
 
 class FakeStats:
+    """Minimal RequestStats stand-in (entries + total)."""
+
     def __init__(self, entries):
+        """FakeEntry(num_requests, num_failures, times): canned stats entry."""
         self.entries = {f"{e.name}:{e.method}": e for e in entries}
         self.total = type(
             "T",
@@ -35,6 +45,7 @@ class FakeStats:
 
 
 def test_aggregate_basic():
+    """aggregate() groups entries into per-scenario report rows."""
     stats = FakeStats(
         [
             FakeEntry("chat_load", "", requests=50, failures=2),
@@ -62,6 +73,7 @@ def test_aggregate_basic():
 
 
 def test_write_reports_csv_json(tmp_path):
+    """CSV and JSON reports are written with expected fields."""
     stats = FakeStats([FakeEntry("s1", "", requests=10)])
     cfg = PerfConfig.model_validate(
         {
@@ -78,6 +90,7 @@ def test_write_reports_csv_json(tmp_path):
 
 
 def test_write_reports_html(tmp_path):
+    """HTML report renders via the Jinja template."""
     stats = FakeStats([FakeEntry("s1", "", requests=10)])
     cfg = PerfConfig.model_validate(
         {

@@ -1,4 +1,7 @@
-"""HTTP transport for app_endpoint layer and generic calls."""
+"""HTTP transport for app_endpoint layer and generic calls.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -8,9 +11,14 @@ import requests
 
 
 class HttpTransport:
+    """requests-based HTTP transport with URL policy enforcement."""
+
     def __init__(self, timeout_s: float = 120.0):
+        """HttpTransport(timeout_s): checked session for conn reuse."""
         self.timeout = timeout_s
-        self.session = requests.Session()
+        from ..security import checked_session
+
+        self.session = checked_session()
 
     def request(
         self,
@@ -21,6 +29,7 @@ class HttpTransport:
         data: bytes | None = None,
         stream: bool = False,
     ) -> requests.Response:
+        """Send an HTTP request after check_url validation."""
         from ..security import check_url
 
         check_url(url)

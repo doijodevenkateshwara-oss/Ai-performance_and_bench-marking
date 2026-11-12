@@ -1,4 +1,7 @@
-"""Locust task: execute one request through a layer + quality evaluation."""
+"""Locust task: execute one request through a layer + quality evaluation.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -15,6 +18,7 @@ class RequestContext:
     """Holds per-scenario runtime state (factory, judge samplers, cost)."""
 
     def __init__(self, config: PerfConfig):
+        """RequestContext(config): shared factory, judge samplers, cost totals."""
         self.config = config
         self.factory = LayerFactory(config)
         self._judge_samplers: dict[str, JudgeSampler] = {}
@@ -22,6 +26,7 @@ class RequestContext:
         self.pricing = getattr(config.report, "pricing", None)
 
     def judge_sampler(self, scenario: ScenarioConfig) -> JudgeSampler | None:
+        """Return (creating if needed) the JudgeSampler for a scenario."""
         if not scenario.quality or not scenario.quality.judge:
             return None
         key = scenario.name
@@ -30,6 +35,7 @@ class RequestContext:
         return self._judge_samplers[key]
 
     def run_scenario(self, scenario: ScenarioConfig, rng: random.Random) -> QualityResult:
+        """Run one scenario end-to-end: layer call + quality + cost accounting."""
         layer = self.factory.layer(scenario.target)
         prompt, row = self.factory.prompt_and_row(layer, rng)
         params = dict(scenario.params)

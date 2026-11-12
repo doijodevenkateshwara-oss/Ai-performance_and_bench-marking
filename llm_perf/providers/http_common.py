@@ -1,4 +1,7 @@
-"""Shared helpers for HTTP providers."""
+"""Shared helpers for HTTP providers.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 
@@ -32,6 +35,7 @@ class StreamResult:
 
 
 def auth_headers(spec: RequestSpec) -> dict:
+    """JSON content-type plus Bearer auth when an API key is set."""
     h = {"Content-Type": "application/json"}
     if spec.api_key:
         h["Authorization"] = f"Bearer {spec.api_key}"
@@ -183,19 +187,23 @@ class HttpClient:
     _sessions: ClassVar[dict[float, requests.Session]] = {}
 
     def __init__(self, timeout_s: float = 120.0):
+        """HttpClient(timeout_s): shares a checked session per timeout."""
         self.timeout = timeout_s
         if timeout_s not in self._sessions:
-            self._sessions[timeout_s] = requests.Session()
+            from ..security import checked_session
+
+            self._sessions[timeout_s] = checked_session()
         self.session = self._sessions[timeout_s]
 
     def post(
         self,
         url: str,
         headers: dict,
-        body: dict | bytes | None,
+        body: dict | bytes | str | None,
         stream: bool = False,
         timeout: float | None = None,
     ) -> requests.Response:
+        """POST through the policy-checked session (redirects re-validated)."""
         from ..security import check_url
 
         check_url(url)

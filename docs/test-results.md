@@ -83,23 +83,31 @@ Example verdicts in the JSON report:
       "threshold": 30000,
       "actual": 45210.5,
       "passed": false,
+      "status": "fail",
       "scope": "scenario"
     }
   ]
 }
 ```
 
-- `on_fail: fail` → CLI exits non-zero (CI gate)
+Every rule has a three-state `status`: `pass`, `fail`, or `not_evaluated`
+(no data for that metric — e.g. a TTFT rule on a non-streaming run).
+
+- `on_fail: fail` → CLI exits non-zero on threshold failures (CI gate)
 - `on_fail: warn` → failures are reported but exit code stays 0
+- `on_not_evaluated: pass` (default) → missing-data rules count as pass
+- `on_not_evaluated: warn` → unevaluated rules print a warning, exit stays 0
+- `on_not_evaluated: fail` → unevaluated rules exit non-zero like failures
 - `llm_perf_threshold_pass` gauge is exported live for Grafana/Alertmanager
 
 ## Analysis sections
 
 The JSON/HTML reports include an `analysis` object:
 
-- **executive_summary** — verdict (`PASS`/`WARN`/`FAIL`/`NO DATA`), headline
-  scenario, top-line findings, SLO pass/fail counts
-- **slo** — rollup of threshold rules into pass/fail/skip counts
+- **executive_summary** — verdict (`PASS`/`WARN`/`FAIL`/`INCOMPLETE`/`NO DATA`),
+  headline scenario, top-line findings, SLO pass/fail/not_evaluated counts
+- **slo** — rollup of threshold rules into pass/fail/not_evaluated counts
+  (`skip` kept as a backward-compatible alias for `not_evaluated`)
 - **bottlenecks** — ranked findings such as:
   - `stage` — a pipeline stage dominates e2e latency
   - `ttft_bound` — TTFT is >60% of e2e p95 (prefill/queue-bound)

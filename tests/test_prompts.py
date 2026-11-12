@@ -1,25 +1,34 @@
+"""Tests for prompt loading and {var} templating.
+
+Author: Venkateshwara Doijode
+"""
+
 import random
 
 from llm_perf.prompts import PromptPicker, load_prompts
 
 
 def test_load_prompts_list():
+    """Inline prompt lists pass through unchanged."""
     assert load_prompts(["a", "b"]) == ["a", "b"]
 
 
 def test_load_prompts_yaml(tmp_path):
+    """YAML prompt files load their prompt entries."""
     p = tmp_path / "p.yaml"
     p.write_text("prompts:\n  - hello\n  - world\n")
     assert load_prompts(str(p)) == ["hello", "world"]
 
 
 def test_load_prompts_txt(tmp_path):
+    """TXT files load one prompt per blank-line block."""
     p = tmp_path / "p.txt"
     p.write_text("first prompt\n\nsecond prompt\n")
     assert load_prompts(str(p)) == ["first prompt", "second prompt"]
 
 
 def test_picker_vars_render():
+    """{var} placeholders render from vars pools."""
     picker = PromptPicker(prompts=["Tell me about {topic}."], vars_={"topic": ["k8s", "ai"]})
     rng = random.Random(1)
     out = picker.pick(rng)
@@ -28,6 +37,7 @@ def test_picker_vars_render():
 
 
 def test_picker_row_priority():
+    """Row prompt fields take priority over the prompt pool."""
     picker = PromptPicker(prompts=["fallback"])
     row = {"prompt": "from row"}
     assert picker.pick(random.Random(0), row) == "from row"

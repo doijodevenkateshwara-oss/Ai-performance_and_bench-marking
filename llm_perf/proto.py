@@ -1,4 +1,7 @@
-"""Proto compilation helpers — see providers/grpc.py for runtime path."""
+"""Proto compilation helpers — see providers/grpc.py for runtime path.
+
+Author: Venkateshwara Doijode
+"""
 
 from __future__ import annotations
 

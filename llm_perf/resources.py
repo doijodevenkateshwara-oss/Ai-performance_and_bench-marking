@@ -4,6 +4,9 @@
   greenlet/thread during the run.
 - Optional target-side scrape: pull selected metrics from a Prometheus
   /metrics endpoint configured under report.scrape.
+
+
+Author: Venkateshwara Doijode
 """
 
 from __future__ import annotations
@@ -11,7 +14,6 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from urllib.request import urlopen
 
 try:
     import psutil
@@ -23,6 +25,7 @@ class HostSampler:
     """Samples local CPU/memory every `interval_s` until stopped."""
 
     def __init__(self, interval_s: float = 5.0):
+        """HostSampler(interval_s): start collecting CPU/mem samples."""
         self.interval_s = interval_s
         self._samples: list[dict] = []
         self._stop = threading.Event()
@@ -32,23 +35,27 @@ class HostSampler:
             self._proc.cpu_percent(None)  # prime
 
     def start(self):
+        """Start the background sampling thread (no-op without psutil)."""
         if psutil is None or self._thread is not None:
             return
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
     def stop(self):
+        """Stop sampling and join the thread."""
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
 
     def _loop(self):
+        """Sampling loop: take a sample each interval until stopped."""
         while not self._stop.is_set():
             with contextlib.suppress(Exception):
                 self._sample()
             self._stop.wait(self.interval_s)
 
     def _sample(self):
+        """Record one CPU/memory/load-avg sample."""
         vm = psutil.virtual_memory()
         self._samples.append(
             {
@@ -61,6 +68,7 @@ class HostSampler:
         )
 
     def summary(self) -> dict:
+        """Aggregate samples into avg/max CPU and memory figures."""
         if not self._samples:
             return {}
         cpus = [s["cpu_percent"] for s in self._samples]
@@ -86,6 +94,7 @@ class EventLoopLagProbe:
     """
 
     def __init__(self, interval_s: float = 0.05, window: int = 200):
+        """EventLoopLagProbe(interval_s, window): lag-sampling probe."""
         self.interval_s = interval_s
         self._window = window
         self._lags_ms: list[float] = []
@@ -94,6 +103,7 @@ class EventLoopLagProbe:
         self._greenlet = None
 
     def start(self):
+        """Start the probe — prefers a gevent greenlet on the main hub."""
         if self._thread is not None or self._greenlet is not None:
             return
         try:
@@ -106,6 +116,7 @@ class EventLoopLagProbe:
             self._thread.start()
 
     def stop(self):
+        """Stop the probe and join the greenlet/thread."""
         self._stop.set()
         if self._greenlet is not None:
             with contextlib.suppress(Exception):
@@ -114,6 +125,7 @@ class EventLoopLagProbe:
             self._thread.join(timeout=2)
 
     def _sleep(self, s: float):
+        """Sleep via gevent when available, else the threading Event wait."""
         try:
             import gevent
 
@@ -122,6 +134,7 @@ class EventLoopLagProbe:
             self._stop.wait(s)
 
     def _loop(self):
+        """Measure sleep overshoot each interval; keep a rolling window."""
         while not self._stop.is_set():
             t0 = time.monotonic()
             self._sleep(self.interval_s)
@@ -131,6 +144,7 @@ class EventLoopLagProbe:
                 del self._lags_ms[: len(self._lags_ms) - self._window]
 
     def summary(self) -> dict:
+        """Aggregate lag samples into avg/p50/p95/max milliseconds."""
         if not self._lags_ms:
             return {}
         s = sorted(self._lags_ms)
@@ -152,6 +166,7 @@ def evaluate_resource_warnings(loadgen: dict, cfg) -> list[dict]:
     out = []
 
     def _add(level, metric, value, threshold, message):
+        """Append a formatted warning entry."""
         out.append(
             {"level": level, "metric": metric, "value": value, "threshold": threshold, "message": message}
         )
@@ -204,8 +219,12 @@ def scrape_prometheus(url: str, metrics: list[str], timeout_s: float = 5.0) -> d
     out: dict[str, dict] = {}
     try:
         check_url(url)
-        with urlopen(url, timeout=timeout_s) as r:
-            text = r.read().decode("utf-8", "replace")
+        # checked opener re-validates redirect targets; cap the read so a
+        # hostile/huge exposition can't exhaust memory
+        from .security import checked_urlopen, get_policy
+
+        with checked_urlopen(url, timeout=timeout_s) as r:
+            text = r.read(get_policy().http_max_response_bytes + 1).decode("utf-8", "replace")
     except Exception as e:
         return {"error": str(e), "url": url}
     wanted = set(metrics or [])
