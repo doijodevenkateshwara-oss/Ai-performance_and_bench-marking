@@ -610,7 +610,6 @@ llm_perf/
   transports/      # http + grpc for app_endpoint layer
   layers/          # llm_api, pipeline, app_endpoint, app_object
   pipelines/       # declarative stage engine (retrieve/rerank/generate/agent)
-  adapters/        # langchain/llamaindex helpers
   quality/         # heuristics, judge, rag recall, scorer
   datasets.py      # dataset loaders/samplers/trace import
   prompts.py       # prompt pools + {var} templating

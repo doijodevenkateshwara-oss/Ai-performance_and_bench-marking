@@ -136,3 +136,13 @@ def _extract_text(result) -> str:
             except Exception:
                 pass
     return str(result)
+
+
+def langchain_result_text(result) -> str:
+    """Unwrap a LangChain result to plain text via the shared extractor."""
+    return _extract_text(result)
+
+
+def llamaindex_result_text(result) -> str:
+    """Unwrap a LlamaIndex result to plain text via the shared extractor."""
+    return _extract_text(result)

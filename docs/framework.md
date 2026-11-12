@@ -78,7 +78,7 @@ and observability assets. This page maps every file/directory to its role.
 | `layers/llm_api.py` | Layer 1 — direct vendor API calls via `providers.call_llm`, records metrics/traces/cost |
 | `layers/pipeline.py` | Layer 2 — declarative RAG/agent pipelines via `pipelines.run_pipeline`, records stage metrics, agent eval, usage |
 | `layers/app_endpoint.py` | Layer 3 — black-box HTTP/gRPC app endpoint, templated requests, pure transport latency/error rate |
-| `layers/app_object.py` | Layer 4 — in-process LangChain/LlamaIndex/generic Python object, dynamic import + async call, best-effort text extraction |
+| `layers/app_object.py` | Layer 4 — in-process LangChain/LlamaIndex/generic Python object, dynamic import + async call, best-effort text extraction; also exports `langchain_result_text`/`llamaindex_result_text` helpers |
 
 ### `llm_perf/pipelines/` — declarative pipeline engine
 
@@ -86,12 +86,6 @@ and observability assets. This page maps every file/directory to its role.
 |---|---|
 | `pipelines/engine.py` | Executes `retrieve`/`rerank`/`generate`/`agent` stages, builds `StageContext`, records per-stage spans/metrics, implements the OpenAI-compatible tool-calling agent loop with loop detection and task-success evaluation |
 | `pipelines/__init__.py` | Re-exports `StageContext`, `run_pipeline` |
-
-### `llm_perf/adapters/` — framework helpers
-
-| Path | Purpose |
-|---|---|
-| `adapters/__init__.py` | Optional helpers for unwrapping LangChain/LlamaIndex results (delegates to `layers/app_object._extract_text`) |
 
 ### `llm_perf/quality/` — quality scoring
 
