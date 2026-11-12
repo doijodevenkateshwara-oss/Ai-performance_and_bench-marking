@@ -71,7 +71,7 @@ config (this is the default in the example configs).
 
 For a no-cost demo, run against a local mock OpenAI-compatible server. Any
 config with `observability.otel.enabled: true` and `stream: true` works —
-example (`configs/demo_otel.yaml`):
+for example:
 
 ```yaml
 observability:

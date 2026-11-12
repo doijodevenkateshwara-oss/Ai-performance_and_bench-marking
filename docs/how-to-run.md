@@ -86,7 +86,8 @@ Available profiles: `smoke`, `baseline`, `load`, `stress`, `spike`, `soak`,
 ### Run only some layers or scenarios
 
 A single config can contain all four layers; filter at invocation time. For
-example, with a config that defines both `llm_api` and `pipeline` targets:
+example, with your own config that defines both `llm_api` and `pipeline`
+targets (substitute the filename):
 
 ```bash
 llm-perf run -c configs/my_stack.yaml --layers llm_api --headless

@@ -224,14 +224,14 @@ Requires the framework installed (`pip install -e ".[langchain]"` etc.).
 A single config can hold all four layers; select what runs at invocation time:
 
 ```bash
-# only the direct-API targets
-llm-perf run -c configs/full_stack.yaml --layers llm_api --headless -u 20 -t 10m
+# only the direct-API targets (substitute your own multi-layer config)
+llm-perf run -c configs/my_stack.yaml --layers llm_api --headless -u 20 -t 10m
 
 # only the pipeline targets
-llm-perf run -c configs/full_stack.yaml --layers pipeline --headless
+llm-perf run -c configs/my_stack.yaml --layers pipeline --headless
 
 # a single named scenario (fine-grained)
-llm-perf run -c configs/full_stack.yaml --scenarios rag_load --headless
+llm-perf run -c configs/my_stack.yaml --scenarios rag_load --headless
 ```
 
 `--layers` accepts a comma list: `--layers llm_api,app_endpoint`. Filters apply
