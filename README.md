@@ -423,12 +423,13 @@ regenerate with `python scripts/screenshot_dashboard.py`):
 | `TPOT` | **time per output token** ms — decode cadence |
 | `ITL_AVG` / `ITL_P95` | **inter-token latency** ms — mean / p95 gap between streamed chunks |
 | `INPUT_TOKENS_PER_SEC` | prompt-token processing rate |
-| `TOKENS_PER_SEC` | output decode throughput (×100 scaling) |
+| `TOKENS_PER_SEC` | output decode throughput (tokens/s) |
 | `TOKENS` / `PROMPT_TOKENS` / `COMPLETION_TOKENS` | token counts |
 | `QUEUE_WAIT` | task start → request dispatch ms (scheduling overhead) |
 | `RETRIES` / `TIMEOUTS` | retry attempts / timed-out requests per scenario |
 | `QUALITY_SCORE` | quality score ×1000 (0–1000) |
 | `CONTEXT_RECALL` | RAG context recall ×1000 |
+| `AGENT_STEPS` / `AGENT_TOOL_CALLS` / `AGENT_TOOL_ERRORS` / `AGENT_LOOPS` / `AGENT_SUCCESS` | agent-loop evaluation (pipeline `agent` stage only) |
 
 **OTel metrics** (exported via OTLP → Prometheus/Grafana):
 
@@ -440,11 +441,11 @@ regenerate with `python scripts/screenshot_dashboard.py`):
 | `llm_perf.tpot` | histogram (s) | scenario, provider |
 | `llm_perf.generation.duration` | histogram (s) | scenario, provider — decode phase |
 | `llm_perf.inter_token_latency` | histogram (s) | scenario, provider |
-| `llm_perf.input_tokens_per_second` | gauge | scenario, provider |
+| `llm_perf.tokens_per_second` | histogram ({token}/s) | scenario, provider — per-request output tok/s distribution |
+| `llm_perf.input_tokens_per_second` | histogram ({token}/s) | scenario, provider — per-request input tok/s distribution |
 | `llm_perf.queue_wait` | histogram (s) | scenario, provider |
 | `llm_perf.retries` / `llm_perf.timeouts` | counters | scenario, provider |
 | `llm_perf.tokens` | counter | scenario, kind=input/output |
-| `llm_perf.tokens_per_second` | gauge | scenario, provider |
 | `llm_perf.users` | up-down counter | — |
 | `llm_perf.stage.duration` | histogram (s) | scenario, stage |
 | `llm_perf.quality.score` / `quality.pass` | histogram / counter | scenario, check |
@@ -594,13 +595,23 @@ llm_perf/
   templates/       # HTML report template
 ```
 
+## Documentation
+
+Detailed guides live in [`docs/`](docs/README.md):
+
+- [Framework file guide](docs/framework.md) — what every file/module does
+- [Architecture](docs/architecture.md) — system design, request lifecycle, layers, observability
+- [How to run](docs/how-to-run.md) — install, CLI usage, profiles, Docker stack, CI
+- [Test results](docs/test-results.md) — report formats, metrics, thresholds, baselines, interpretation
+- [Methodology](docs/methodology.md) — timing accuracy, gevent concurrency, when streaming metrics are unreliable
+
 ## Development
 
 ```bash
 pip install -e ".[dev]"
 ruff check llm_perf tests
 black --check llm_perf tests
-pytest -q          # 86 tests incl. a real Locust e2e run vs a mock server
+pytest -q          # 95 tests incl. a real Locust e2e run vs a mock server
 ```
 
 ## Notes & limitations (v0.1)

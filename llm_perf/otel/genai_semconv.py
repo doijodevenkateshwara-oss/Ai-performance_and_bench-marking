@@ -17,11 +17,15 @@ def _instruments():
         "request_total": m.create_counter("llm_perf.request.total", description="Total requests"),
         "ttft": m.create_histogram("llm_perf.ttft", unit="s", description="Time to first token"),
         "tokens": m.create_counter("llm_perf.tokens", description="Token usage"),
-        "tokens_per_second": m.create_gauge(
-            "llm_perf.tokens_per_second", description="Output tokens per second"
+        "tokens_per_second": m.create_histogram(
+            "llm_perf.tokens_per_second",
+            unit="{token}/s",
+            description="Per-request output tokens per second distribution",
         ),
-        "input_tokens_per_second": m.create_gauge(
-            "llm_perf.input_tokens_per_second", description="Input (prompt) tokens per second"
+        "input_tokens_per_second": m.create_histogram(
+            "llm_perf.input_tokens_per_second",
+            unit="{token}/s",
+            description="Per-request input (prompt) tokens per second distribution",
         ),
         "tpot": m.create_histogram(
             "llm_perf.tpot", unit="s", description="Time per output token (decode cadence)"

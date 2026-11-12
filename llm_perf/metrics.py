@@ -248,11 +248,15 @@ def record_response(
         tps = resp.completion_tokens / gen_s if resp.completion_tokens else 0.0
         if tps:
             with suppress(AttributeError):
-                inst["tokens_per_second"].set(tps, attrs)
+                inst["tokens_per_second"].record(tps, attrs)
         itps = resp.prompt_tokens / max(e2e_s, 0.001) if resp.prompt_tokens else 0.0
         if itps:
             with suppress(AttributeError):
-                inst["input_tokens_per_second"].set(itps, attrs)
+                inst["input_tokens_per_second"].record(itps, attrs)
+    if resp.retries:
+        inst["retries"].add(resp.retries, attrs)
+    if resp.timed_out:
+        inst["timeouts"].add(1, attrs)
 
     _log_custom(
         _locust_stats(),
@@ -423,8 +427,6 @@ def record_threshold(rule: str, passed: bool):
     g = instruments()["threshold_pass"]
     with suppress(AttributeError):
         g.set(1.0 if passed else 0.0, {"rule": rule})
-    with suppress(Exception):
-        g.record(1.0 if passed else 0.0, {"rule": rule})
 
 
 # ---------------------------------------------------------------------------

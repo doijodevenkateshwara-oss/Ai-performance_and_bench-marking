@@ -1,0 +1,214 @@
+# How to run llm-perf
+
+## Prerequisites
+
+- Python 3.10+
+- `pip` and `venv`
+- API keys for the providers you want to test (stored in env vars only)
+- Docker (optional, for the local observability stack)
+
+## Install
+
+```bash
+cd performance-testing-llm-ai
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Optional extras:
+
+```bash
+pip install -e ".[langchain]"      # app_object layer for LangChain
+pip install -e ".[llamaindex]"     # app_object layer for LlamaIndex
+pip install -e ".[s3,gcs]"         # dataset sources on S3/GCS
+```
+
+Configure secrets:
+
+```bash
+cp .env.example .env
+# fill in OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
+# then either export them or use a tool like direnv
+```
+
+## Validate a config
+
+```bash
+llm-perf validate -c configs/openai_example.yaml
+# skip connectivity/env checks for offline validation
+llm-perf validate -c configs/openai_example.yaml --skip-connectivity
+```
+
+## Run a test
+
+### Headless (CI-friendly)
+
+```bash
+llm-perf run -c configs/openai_example.yaml --headless -u 10 -t 2m
+```
+
+- `-u/--users` overrides `load.users`
+- `--spawn-rate` overrides `load.spawn_rate`
+- `-t/--duration` overrides `load.duration`
+- `--headless` runs without the web UI
+
+### With the Locust web UI
+
+```bash
+LLM_PERF_CONFIG=configs/openai_example.yaml locust -f locustfile.py
+# open http://localhost:8089
+```
+
+Or via the CLI wrapper (uses `--web-port`, default 8089):
+
+```bash
+llm-perf run -c configs/openai_example.yaml --web-port 8089
+```
+
+### Workload profiles
+
+Profiles expand into ramp-up → steady-state → ramp-down phases via a Locust
+`LoadTestShape`:
+
+```bash
+# use the profile defined in the config
+llm-perf run -c configs/profiles_example.yaml --headless
+
+# override the profile on the CLI
+llm-perf run -c configs/openai_example.yaml --profile stress --users 50 --headless
+```
+
+Available profiles: `smoke`, `baseline`, `load`, `stress`, `spike`, `soak`,
+`scalability`, `capacity`, `custom` (see `configs/profiles_example.yaml` and
+[README.md](../README.md#workload-profiles)).
+
+### Run only some layers or scenarios
+
+A single config can contain all four layers; filter at invocation time. For
+example, with a config that defines both `llm_api` and `pipeline` targets:
+
+```bash
+llm-perf run -c configs/my_stack.yaml --layers llm_api --headless
+llm-perf run -c configs/my_stack.yaml --layers llm_api,pipeline --headless
+llm-perf run -c configs/my_stack.yaml --scenarios rag_load --headless
+```
+
+### Distributed run
+
+```bash
+# master
+llm-perf run -c configs/openai_example.yaml --headless --master 0.0.0.0
+
+# workers (repeat on each worker host)
+llm-perf run -c configs/openai_example.yaml --headless --workers
+```
+
+## Common CLI commands
+
+```bash
+# inspect datasets
+llm-perf dataset list -c configs/openai_example.yaml
+llm-perf dataset show qa_pairs -c configs/openai_example.yaml
+llm-perf dataset sample qa_pairs -c configs/openai_example.yaml -n 5
+
+# import production traces into a dataset
+llm-perf dataset import --from traces.jsonl --to datasets/imported.jsonl \
+  --trace-format langsmith
+# or generic JSONL with field mapping
+llm-perf dataset import --from traces.jsonl --to datasets/imported.jsonl \
+  --map prompt=inputs.question,expected=outputs.answer
+
+# validate a standalone dataset file
+llm-perf dataset validate datasets/qa_pairs.jsonl
+
+# score a saved response offline against a config's quality rules
+llm-perf quality-check -c configs/openai_example.yaml \
+  --response-file response.txt --question "What is Kubernetes?"
+
+# compile a .proto for gRPC targets
+llm-perf proto-gen -p protos/inference.proto
+
+# manage run history baselines
+llm-perf baseline list -c configs/openai_example.yaml
+llm-perf baseline mark -c configs/openai_example.yaml
+```
+
+## Observability stack (optional but recommended)
+
+Start the local collector + Prometheus + Jaeger + Grafana:
+
+```bash
+docker compose up -d
+```
+
+Then run a test with `observability.otel.enabled: true` (the example configs
+already do this). Open:
+
+| UI | URL | Shows |
+|---|---|---|
+| Locust web UI | http://localhost:8089 | Live RPS, latency percentiles, failures, custom stats |
+| Grafana | http://localhost:3000 | Provisioned `llm-perf` dashboard |
+| Prometheus | http://localhost:9090 | Raw `llm_perf_*` metrics |
+| Jaeger | http://localhost:16686 | Distributed traces per request/stage |
+
+To run without telemetry, set `observability.otel.enabled: false` in the config.
+
+## Dashboard screenshots
+
+The live Locust UI screenshot is stored at:
+
+```
+docs/screenshots/locust-ui.png
+```
+
+Regenerate it with:
+
+```bash
+python scripts/screenshot_dashboard.py
+```
+
+The script starts a mock OpenAI server, launches Locust with the web UI,
+drives a small swarm, waits for stats to accumulate, and captures the page with
+Playwright.
+
+## Generate sample results without real credentials
+
+```bash
+python scripts/generate_sample_results.py
+```
+
+This starts a local mock OpenAI streaming server, runs a `smoke` profile for
+~30 s, and writes CSV/JSON/HTML reports into `docs/sample-results/`. Use it to
+sanity-check the install and to see the full report shape without API keys.
+
+## CI usage
+
+The repo's own CI (`.github/workflows/ci.yml`) runs:
+
+```bash
+pip install -e ".[dev]"
+ruff check llm_perf tests
+black --check llm_perf tests
+for f in configs/*.yaml; do llm-perf validate -c "$f"; done
+pytest -q
+```
+
+For your own CI, gate on thresholds/regressions:
+
+```bash
+llm-perf run -c configs/openai_example.yaml --headless -u 10 -t 5m
+# exits non-zero if thresholds.on_fail: fail or regression.on_fail: fail
+```
+
+## Troubleshooting
+
+- **Missing env vars**: `llm-perf validate` prints warnings for unset
+  `api_key_env` variables and missing dataset sources.
+- **Streaming metrics look inflated**: check `resources.loadgen` in the JSON
+  report — high CPU or `scheduler_lag` means the load generator is the
+  bottleneck, not the target. See [methodology.md](methodology.md).
+- **gRPC errors**: run `llm-perf proto-gen -p <your.proto>` first and ensure
+  `grpc.proto_path` points to the compiled proto.
+- **Bedrock errors**: uses the AWS credential chain; set `AWS_REGION` and
+  credentials in env or use `aws.auth: profile`.
