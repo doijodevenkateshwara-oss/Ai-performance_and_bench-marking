@@ -13,9 +13,10 @@ from .base import LayerResult
 
 
 class PipelineLayer:
-    def __init__(self, target: PipelineTarget, picker: PromptPicker):
+    def __init__(self, target: PipelineTarget, picker: PromptPicker, pricing=None):
         self.target = target
         self.picker = picker
+        self.pricing = pricing
 
     def run(
         self, prompt: str, row: dict | None, scenario_params: dict, scenario_name: str = "default"
@@ -26,7 +27,9 @@ class PipelineLayer:
         with request_span(scenario_name, t.name, "pipeline") as span:
             start = time.monotonic()
             try:
-                ctx = run_pipeline(t.pipeline, question, row, scenario_name, scenario_params)
+                ctx = run_pipeline(
+                    t.pipeline, question, row, scenario_name, scenario_params, pricing=self.pricing
+                )
             except Exception as e:
                 e2e = time.monotonic() - start
                 record_error(scenario_name, "pipeline", str(e), e2e)
@@ -36,8 +39,12 @@ class PipelineLayer:
                 span.set_attribute("error", True)
                 return LayerResult(error=str(e), row=row, stage_metrics={"e2e_s": e2e})
             e2e = time.monotonic() - start
-            stage_metrics = {"e2e_s": e2e}
-            # generate stage timing recorded via record_stage; e2e covers all
+            stage_metrics = {"e2e_s": e2e, **(ctx.stage_metrics or {})}
+            # agent-stage evaluation metrics (success/tool/loop counters)
+            if ctx.agent_eval:
+                from ..metrics import record_agent_eval
+
+                record_agent_eval(scenario_name, ctx.agent_eval)
             resp = NormalizedResponse(
                 text=ctx.output_text,
                 prompt_tokens=ctx.usage.get("prompt_tokens", 0),

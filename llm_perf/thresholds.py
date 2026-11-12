@@ -37,13 +37,13 @@ class ThresholdReport:
 
 # metric name -> (stats lookup kind)
 _PCT_RULES = [("p50_ms", 50), ("p90_ms", 90), ("p95_ms", 95), ("p99_ms", 99)]
-# custom Locust stat entry -> ThresholdRule field for p95 gating
+# custom metric -> (ThresholdRule field, exact-sample name, Locust stat method)
 _CUSTOM_P95_RULES = [
-    ("ttft_p95_ms", "TTFT"),
-    ("tpot_p95_ms", "TPOT"),
-    ("itl_p95_ms", "ITL_P95"),
-    ("gen_p95_ms", "GEN_DURATION"),
-    ("queue_p95_ms", "QUEUE_WAIT"),
+    ("ttft_p95_ms", "ttft_ms", "TTFT"),
+    ("tpot_p95_ms", "tpot_ms", "TPOT"),
+    ("itl_p95_ms", "itl_p95_ms", "ITL_P95"),
+    ("gen_p95_ms", "gen_duration_ms", "GEN_DURATION"),
+    ("queue_p95_ms", "queue_wait_ms", "QUEUE_WAIT"),
 ]
 _GAUGE_RULES = [
     ("max_error_rate", "error_rate", "<="),
@@ -55,6 +55,9 @@ _GAUGE_RULES = [
     ("min_context_recall", "context_recall", ">="),
     ("max_cost_usd", "cost_usd", "<="),
     ("max_cost_per_success_usd", "cost_per_success_usd", "<="),
+    ("min_agent_success_rate", "agent_success_rate", ">="),
+    ("max_agent_tool_error_rate", "agent_tool_error_rate", "<="),
+    ("max_agent_loops_avg", "agent_loops_avg", "<="),
 ]
 
 
@@ -82,13 +85,15 @@ def evaluate(
     total_failures: int,
     cost_by_scenario: dict | None = None,
     stage_stats: dict | None = None,
+    custom_stats: dict | None = None,
 ) -> ThresholdReport:
-    """Evaluate all rules against final Locust stats."""
+    """Evaluate all rules against final Locust stats + exact custom samples."""
     rep = ThresholdReport()
     if thresholds is None:
         return rep
     cost_by_scenario = cost_by_scenario or {}
     stage_stats = stage_stats or {}
+    custom_stats = custom_stats or {}
 
     def check_rule(rule: ThresholdRule, scope: str, scenario: str | None):
         label = f"{scope}:{scenario}" if scenario else scope
@@ -110,13 +115,14 @@ def evaluate(
                     scope=scope,
                 )
             )
-        # p95 rules on custom stat entries (TTFT, TPOT, ITL, gen duration, queue wait)
-        for field_name, method in _CUSTOM_P95_RULES:
+        # p95 rules on custom metrics (exact samples preferred, stats entry fallback)
+        for field_name, metric, method in _CUSTOM_P95_RULES:
             limit = getattr(rule, field_name)
             if limit is None:
                 continue
+            se = custom_stats.get((scenario or "", metric)) if scenario else None
             e = _entry_for(stats, scenario or "", method) if scenario else None
-            actual = _percentile(e, 95) if e else None
+            actual = se["p95"] if se else (_percentile(e, 95) if e else None)
             rep.results.append(
                 RuleResult(
                     name=f"{label}.{field_name}",
@@ -142,6 +148,7 @@ def evaluate(
                 total_failures,
                 cost_by_scenario,
                 stage_stats,
+                custom_stats,
             )
             passed = None if actual is None else actual <= limit if comp == "<=" else actual >= limit
             rep.results.append(
@@ -215,8 +222,26 @@ def _percentile(entry, pct: float) -> float | None:
             return None
 
 
+def _snap_avg(custom_stats, scenario, metric):
+    se = custom_stats.get((scenario or "", metric)) if custom_stats else None
+    return se["avg"] if se else None
+
+
+def _snap_sum(custom_stats, scenario, metric):
+    se = custom_stats.get((scenario or "", metric)) if custom_stats else None
+    return se["sum"] if se else None
+
+
 def _gauge_value(
-    metric, stats, scenario, duration_s, total_requests, total_failures, cost_by_scenario, stage_stats
+    metric,
+    stats,
+    scenario,
+    duration_s,
+    total_requests,
+    total_failures,
+    cost_by_scenario,
+    stage_stats,
+    custom_stats=None,
 ):
     try:
         if metric == "error_rate":
@@ -233,17 +258,26 @@ def _gauge_value(
         if metric == "throughput_rps":
             return total_requests / max(duration_s, 1e-9)
         if metric == "quality_score":
+            v = _snap_avg(custom_stats, scenario, "quality_score")
+            if v is not None:
+                return v
             e = _entry_for(stats, scenario or "", "QUALITY_SCORE") if scenario else None
             if e is None or e.num_requests == 0:
                 return None
             return (e.avg_response_time or 0) / 1000.0
         if metric == "quality_pass_rate":
+            v = _snap_avg(custom_stats, scenario, "quality_pass")
+            if v is not None:
+                return v
             p = _entry_for(stats, scenario or "", "QUALITY_SCORE") if scenario else None
-            # pass rate approximated: we don't store pass/fail in stats entry; use avg>=0.5
+            # fallback: pass rate approximated as avg>=0.5
             if p is None or p.num_requests == 0:
                 return None
             return 1.0 if (p.avg_response_time or 0) / 1000.0 >= 0.5 else 0.0
         if metric == "context_recall":
+            v = _snap_avg(custom_stats, scenario, "context_recall")
+            if v is not None:
+                return v
             e = _entry_for(stats, scenario or "", "CONTEXT_RECALL") if scenario else None
             if e is None or e.num_requests == 0:
                 return None
@@ -252,6 +286,16 @@ def _gauge_value(
             return cost_by_scenario.get(scenario or "__total__")
         if metric == "cost_per_success_usd":
             return _cost_per_success(stats, scenario, cost_by_scenario)
+        if metric == "agent_success_rate":
+            return _snap_avg(custom_stats, scenario, "agent_success")
+        if metric == "agent_tool_error_rate":
+            tc = _snap_sum(custom_stats, scenario, "agent_tool_calls")
+            te = _snap_sum(custom_stats, scenario, "agent_tool_errors")
+            if not tc:
+                return None
+            return (te or 0.0) / tc
+        if metric == "agent_loops_avg":
+            return _snap_avg(custom_stats, scenario, "agent_loops")
         if metric == "retries":
             e = _entry_for(stats, scenario or "", "RETRIES") if scenario else None
             if e is None or e.num_requests == 0:

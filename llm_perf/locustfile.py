@@ -89,11 +89,12 @@ if _config.load.uses_shape:
 
 _test_start_ts = None
 _resource_sampler = None
+_lag_probe = None
 
 
 @events.test_start.add_listener
 def _on_test_start(environment, **kw):
-    global _test_start_ts, _resource_sampler
+    global _test_start_ts, _resource_sampler, _lag_probe
     import time
 
     _test_start_ts = time.time()
@@ -102,16 +103,20 @@ def _on_test_start(environment, **kw):
         setup_otel(service_name=oc.service_name, endpoint=oc.endpoint, sample_ratio=oc.sample_ratio)
     # record_users is driven by User.on_start/on_stop
     if _config.report.collect_resources:
-        from .resources import HostSampler
+        from .resources import EventLoopLagProbe, HostSampler
 
         _resource_sampler = HostSampler(interval_s=5.0)
         _resource_sampler.start()
+        _lag_probe = EventLoopLagProbe()
+        _lag_probe.start()
 
 
 @events.test_stop.add_listener
 def _on_test_stop(environment, **kw):
     if _resource_sampler is not None:
         _resource_sampler.stop()
+    if _lag_probe is not None:
+        _lag_probe.stop()
     _run_reports_and_thresholds(environment)
 
 
@@ -133,12 +138,13 @@ def _run_reports_and_thresholds(environment) -> None:
     total_req = stats.total.num_requests if hasattr(stats, "total") else 0
     total_fail = stats.total.num_failures if hasattr(stats, "total") else 0
 
-    # stage stats + cost from the request context
-    from .metrics import stage_stats_snapshot
+    # stage stats + cost + exact custom samples from the request context
+    from .metrics import custom_stats_snapshot, stage_stats_snapshot
     from .scenarios import get_context
 
     ctx = get_context()
     stage_stats = stage_stats_snapshot()
+    custom_stats = custom_stats_snapshot()
     cost_by_scenario = dict(getattr(ctx, "cost_by_scenario", {}) or {})
     if cost_by_scenario:
         cost_by_scenario["__total__"] = sum(cost_by_scenario.values())
@@ -154,6 +160,7 @@ def _run_reports_and_thresholds(environment) -> None:
             total_failures=total_fail,
             cost_by_scenario=cost_by_scenario,
             stage_stats=stage_stats,
+            custom_stats=custom_stats,
         )
         # publish threshold gauges for live alerting dashboards
         from .metrics import record_threshold
@@ -162,7 +169,7 @@ def _run_reports_and_thresholds(environment) -> None:
             if r.passed is not None:
                 record_threshold(r.name, r.passed)
 
-    report = aggregate(stats, _config, dur or 0.0, trep, cost_by_scenario)
+    report = aggregate(stats, _config, dur or 0.0, trep, cost_by_scenario, custom_stats)
     _enrich_report(report, stage_stats)
     paths = write_reports(report, _config, trep)
     from . import history
@@ -220,13 +227,30 @@ def _enrich_report(report: dict, stage_stats: dict) -> None:
 
     resources = {}
     if _config.report.collect_resources:
-        resources["loadgen"] = _resource_sampler.summary() if _resource_sampler else {}
+        loadgen = _resource_sampler.summary() if _resource_sampler else {}
+        if _lag_probe is not None:
+            lag = _lag_probe.summary()
+            if lag:
+                loadgen["scheduler_lag"] = lag
+        resources["loadgen"] = loadgen
     if _config.report.scrape:
         from .resources import collect_target_metrics
 
         resources["targets"] = collect_target_metrics(_config.report.scrape)
     if resources:
         report["resources"] = resources
+
+    # generator-health warnings (CPU saturation / event-loop lag)
+    from .resources import evaluate_resource_warnings
+
+    warnings = evaluate_resource_warnings((resources.get("loadgen") or {}), _config.report.resource_warn)
+    if warnings:
+        report["warnings"] = warnings
+        for w in warnings:
+            print(
+                f"[llm-perf] WARNING [{w['metric']}] {w['message']} "
+                f"(value={w['value']}, threshold={w['threshold']})"
+            )
 
     report["analysis"] = {
         "executive_summary": analysis.executive_summary(report),

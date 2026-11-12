@@ -152,6 +152,15 @@ class LlmApiTarget(BaseTarget):
         return self
 
 
+class AgentSuccessConfig(BaseModel):
+    """How to decide whether an agent run succeeded."""
+
+    expected_field: str | None = None  # dataset column matched against final answer
+    match: Literal["contains", "exact", "regex"] = "contains"
+    on_max_iterations: Literal["fail", "pass"] = "fail"  # does hitting max_iter count as failure?
+    require_tool_use: bool = False  # success requires >=1 tool call
+
+
 class PipelineStage(BaseModel):
     stage: Literal["retrieve", "rerank", "generate", "agent"]
     # retrieve
@@ -165,6 +174,8 @@ class PipelineStage(BaseModel):
     # agent
     max_iterations: int = 6
     max_cost_usd: float | None = None
+    loop_repeat_threshold: int = Field(default=3, ge=1)  # identical tool+args calls -> loop flag
+    success: AgentSuccessConfig | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
 
     model_config = {"extra": "allow"}
@@ -309,6 +320,10 @@ class ThresholdRule(BaseModel):
     min_context_recall: float | None = None
     max_cost_usd: float | None = None
     max_cost_per_success_usd: float | None = None
+    # agent-stage rules
+    min_agent_success_rate: float | None = None
+    max_agent_tool_error_rate: float | None = None
+    max_agent_loops_avg: float | None = None
     # per-stage rules: dict stage_name -> {p95_ms: ...}
     stages: dict[str, dict[str, float]] = Field(default_factory=dict)
 
@@ -345,6 +360,16 @@ class ScrapeConfig(BaseModel):
     timeout_s: float = 5.0
 
 
+class ResourceWarnConfig(BaseModel):
+    """Thresholds for load-generator health warnings in reports."""
+
+    enabled: bool = True
+    cpu_avg_pct: float = 85.0
+    cpu_max_pct: float = 95.0
+    mem_pct: float = 90.0
+    lag_p95_ms: float = 50.0  # event-loop lag above this -> streaming metrics unreliable
+
+
 class ReportConfig(BaseModel):
     formats: list[Literal["csv", "json", "html"]] = Field(default_factory=lambda: ["csv", "json", "html"])
     output_dir: str = "results"
@@ -357,6 +382,7 @@ class ReportConfig(BaseModel):
     # resource monitoring
     collect_resources: bool = True
     scrape: list[ScrapeConfig] = Field(default_factory=list)
+    resource_warn: ResourceWarnConfig = Field(default_factory=ResourceWarnConfig)
 
 
 # ---------------------------------------------------------------------------

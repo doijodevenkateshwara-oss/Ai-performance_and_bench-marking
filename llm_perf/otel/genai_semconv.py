@@ -62,6 +62,21 @@ def _instruments():
         "threshold_pass": m.create_gauge(
             "llm_perf.threshold.pass", unit="1", description="Threshold rule pass state"
         ),
+        "agent_steps": m.create_histogram(
+            "llm_perf.agent.steps", unit="{step}", description="Agent LLM steps per run"
+        ),
+        "agent_tool_calls": m.create_counter(
+            "llm_perf.agent.tool_calls", description="Agent tool invocations"
+        ),
+        "agent_tool_errors": m.create_counter(
+            "llm_perf.agent.tool_errors", description="Agent tool calls that errored"
+        ),
+        "agent_loops": m.create_counter(
+            "llm_perf.agent.loops", description="Agent runs flagged for repeated tool-call loops"
+        ),
+        "agent_task_success": m.create_counter(
+            "llm_perf.agent.task_success", description="Agent task success/failure counts"
+        ),
     }
 
 

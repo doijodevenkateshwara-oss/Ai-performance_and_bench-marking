@@ -39,6 +39,49 @@ def _locust_stats():
     return getattr(_CURRENT_ENV, "stats", None) if _CURRENT_ENV is not None else None
 
 
+# ---------------------------------------------------------------------------
+# Exact custom-metric samples — authoritative values for reports/thresholds.
+# Locust StatsEntry buckets percentiles to ~2 significant digits and is built
+# for request latencies; these samples keep full precision.
+# ---------------------------------------------------------------------------
+
+_CUSTOM_LOCK = threading.Lock()
+_CUSTOM: dict[tuple[str, str], list[float]] = defaultdict(list)
+_CUSTOM_CAP = 20000
+
+
+def record_metric(scenario: str, metric: str, value: float):
+    """Store one exact sample for (scenario, metric)."""
+    if value is None:
+        return
+    with _CUSTOM_LOCK:
+        lst = _CUSTOM[(scenario, metric)]
+        if len(lst) < _CUSTOM_CAP:
+            lst.append(float(value))
+
+
+def custom_stats_snapshot() -> dict[tuple[str, str], dict]:
+    """Aggregate samples into {(scenario, metric): {count,sum,avg,min,max,p50,p95}}."""
+    out = {}
+    with _CUSTOM_LOCK:
+        items = {k: list(v) for k, v in _CUSTOM.items()}
+    for (scenario, metric), samples in items.items():
+        if not samples:
+            continue
+        s = sorted(samples)
+        n = len(s)
+        out[(scenario, metric)] = {
+            "count": n,
+            "sum": sum(s),
+            "avg": sum(s) / n,
+            "min": s[0],
+            "max": s[-1],
+            "p50": s[int(n * 0.50)],
+            "p95": s[min(int(n * 0.95), n - 1)],
+        }
+    return out
+
+
 def _log_custom(
     stats,
     name: str,
@@ -57,53 +100,56 @@ def _log_custom(
     quality_score: float | None = None,
     context_recall: float | None = None,
 ):
-    """Record into Locust custom stats entries (created lazily)."""
+    """Record into Locust custom stats entries (created lazily).
+
+    Also stores exact samples via record_metric for report/threshold use —
+    the Locust entries are scaled/bucketed approximations for the live UI.
+    """
+    # exact samples (always, even without a Locust env)
+    exact = [
+        ("ttft_ms", ttft_s * 1000.0 if ttft_s is not None else None),
+        ("tokens_per_sec", tokens_per_sec or None),
+        ("input_tokens_per_sec", input_tokens_per_sec or None),
+        ("tpot_ms", tpot_s * 1000.0 if tpot_s is not None else None),
+        ("gen_duration_ms", generation_s * 1000.0 if generation_s is not None else None),
+        ("itl_avg_ms", itl_avg_ms),
+        ("itl_p95_ms", itl_p95_ms),
+        ("queue_wait_ms", queue_wait_s * 1000.0 if queue_wait_s is not None else None),
+        ("retries", float(retries) if retries else None),
+        ("timeouts", 1.0 if timed_out else None),
+        ("quality_score", quality_score),
+        ("context_recall", context_recall),
+    ]
+    for metric, value in exact:
+        if value is not None:
+            record_metric(name, metric, value)
+
     if stats is None:
         return
+    # Locust custom-stat entries — live-UI approximations (scaled/bucketed);
+    # reports and thresholds use the exact samples above.
+    entries = [
+        ("TTFT", ttft_s * 1000.0 if ttft_s is not None else None),
+        ("TOKENS_PER_SEC", tokens_per_sec or None),
+        ("INPUT_TOKENS_PER_SEC", input_tokens_per_sec or None),
+        ("TPOT", tpot_s * 1000.0 if tpot_s is not None else None),
+        ("GEN_DURATION", generation_s * 1000.0 if generation_s is not None else None),
+        ("ITL_AVG", itl_avg_ms),
+        ("ITL_P95", itl_p95_ms),
+        ("QUEUE_WAIT", queue_wait_s * 1000.0 if queue_wait_s is not None else None),
+        ("RETRIES", float(retries) if retries else None),
+        ("TIMEOUTS", 1.0 if timed_out else None),
+        ("QUALITY_SCORE", quality_score * 1000.0 if quality_score is not None else None),
+        ("CONTEXT_RECALL", context_recall * 1000.0 if context_recall is not None else None),
+    ]
     try:
-        if ttft_s is not None:
-            e = stats.get(name, "TTFT")
-            e.log(int(ttft_s * 1000), 0)
         if prompt_tokens or completion_tokens:
-            e = stats.get(name, "TOKENS")
-            e.log(prompt_tokens + completion_tokens, 0)
-            e2 = stats.get(name, "PROMPT_TOKENS")
-            e2.log(prompt_tokens, 0)
-            e3 = stats.get(name, "COMPLETION_TOKENS")
-            e3.log(completion_tokens, 0)
-        if tokens_per_sec:
-            e = stats.get(name, "TOKENS_PER_SEC")
-            e.log(int(tokens_per_sec * 100), 0)
-        if input_tokens_per_sec:
-            e = stats.get(name, "INPUT_TOKENS_PER_SEC")
-            e.log(int(input_tokens_per_sec * 100), 0)
-        if tpot_s is not None:
-            e = stats.get(name, "TPOT")
-            e.log(int(tpot_s * 1000), 0)
-        if generation_s is not None:
-            e = stats.get(name, "GEN_DURATION")
-            e.log(int(generation_s * 1000), 0)
-        if itl_avg_ms is not None:
-            e = stats.get(name, "ITL_AVG")
-            e.log(int(itl_avg_ms), 0)
-        if itl_p95_ms is not None:
-            e = stats.get(name, "ITL_P95")
-            e.log(int(itl_p95_ms), 0)
-        if queue_wait_s is not None:
-            e = stats.get(name, "QUEUE_WAIT")
-            e.log(int(queue_wait_s * 1000), 0)
-        if retries:
-            e = stats.get(name, "RETRIES")
-            e.log(retries, 0)
-        if timed_out:
-            e = stats.get(name, "TIMEOUTS")
-            e.log(1, 0)
-        if quality_score is not None:
-            e = stats.get(name, "QUALITY_SCORE")
-            e.log(int(quality_score * 1000), 0)  # store as 0..1000
-        if context_recall is not None:
-            e = stats.get(name, "CONTEXT_RECALL")
-            e.log(int(context_recall * 1000), 0)
+            stats.get(name, "TOKENS").log(prompt_tokens + completion_tokens, 0)
+            stats.get(name, "PROMPT_TOKENS").log(prompt_tokens, 0)
+            stats.get(name, "COMPLETION_TOKENS").log(completion_tokens, 0)
+        for label, value in entries:
+            if value is not None:
+                stats.get(name, label).log(value, 0)
     except Exception:
         pass
 
@@ -229,12 +275,14 @@ def record_error(
         inst["request_duration"].record(e2e_s, {"scenario": scenario, "provider": provider})
     stats = _locust_stats()
     if retries:
+        record_metric(scenario, "retries", float(retries))
         with suppress(AttributeError):
             inst["retries"].add(retries, {"scenario": scenario, "provider": provider})
         if stats is not None:
             with suppress(Exception):
                 stats.get(scenario, "RETRIES").log(retries, 0)
     if timed_out:
+        record_metric(scenario, "timeouts", 1.0)
         with suppress(AttributeError):
             inst["timeouts"].add(1, {"scenario": scenario, "provider": provider})
         if stats is not None:
@@ -257,6 +305,7 @@ def record_quality(
         inst["quality_score"].record(score, {"scenario": scenario})
         _log_custom(_locust_stats(), scenario, quality_score=score)
     if passed is not None:
+        record_metric(scenario, "quality_pass", 1.0 if passed else 0.0)
         inst["quality_pass"].add(
             1, {"scenario": scenario, "result": "pass" if passed else "fail", "check": check or "overall"}
         )
@@ -274,6 +323,48 @@ def record_stage(scenario: str, stage: str, duration_s: float, **attrs):
 def record_cost(scenario: str, cost_usd: float):
     if cost_usd:
         instruments()["cost"].add(cost_usd, {"scenario": scenario})
+
+
+def record_agent_eval(scenario: str, ev: dict):
+    """Record agent-stage evaluation metrics (OTel + exact samples + Locust stats)."""
+    if not ev:
+        return
+    inst = instruments()
+    attrs = {"scenario": scenario}
+    steps = ev.get("steps") or 0
+    tool_calls = ev.get("tool_calls") or 0
+    tool_errors = ev.get("tool_errors") or 0
+    loops = ev.get("loops") or 0
+    success = ev.get("success")
+    terminated = ev.get("terminated") or "unknown"
+
+    with suppress(AttributeError):
+        inst["agent_steps"].record(steps, attrs)
+        inst["agent_tool_calls"].add(tool_calls, attrs)
+        inst["agent_tool_errors"].add(tool_errors, attrs)
+        inst["agent_loops"].add(loops, attrs)
+        if success is not None:
+            inst["agent_task_success"].add(1, {**attrs, "result": "success" if success else "failure"})
+
+    # exact samples for reports/thresholds
+    record_metric(scenario, "agent_run", 1.0)
+    record_metric(scenario, "agent_steps", float(steps))
+    record_metric(scenario, "agent_tool_calls", float(tool_calls))
+    record_metric(scenario, "agent_tool_errors", float(tool_errors))
+    record_metric(scenario, "agent_loops", float(loops))
+    record_metric(scenario, "agent_terminated_" + terminated, 1.0)
+    if success is not None:
+        record_metric(scenario, "agent_success", 1.0 if success else 0.0)
+
+    stats = _locust_stats()
+    if stats is not None:
+        with suppress(Exception):
+            stats.get(scenario, "AGENT_STEPS").log(steps, 0)
+            stats.get(scenario, "AGENT_TOOL_CALLS").log(tool_calls, 0)
+            stats.get(scenario, "AGENT_TOOL_ERRORS").log(tool_errors, 0)
+            stats.get(scenario, "AGENT_LOOPS").log(loops, 0)
+            if success is not None:
+                stats.get(scenario, "AGENT_SUCCESS").log(1 if success else 0, 0)
 
 
 def log_request_event(

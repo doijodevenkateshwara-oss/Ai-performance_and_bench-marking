@@ -25,6 +25,13 @@ targets:
     pipeline:
       - stage: agent
         max_iterations: 6
+        max_cost_usd: 0.10          # stop the loop if estimated spend exceeds this
+        loop_repeat_threshold: 3    # identical tool+args call count -> loop flag
+        success:                    # task-success evaluation (see report "Agent evaluation")
+          expected_field: expected_answer   # dataset column matched vs final answer
+          match: contains
+          on_max_iterations: fail    # fail | pass — does exhausting iterations count?
+          require_tool_use: false    # require >=1 tool call for success
         llm:
           provider: openai            # openai | azure
           model: gpt-4o

@@ -54,15 +54,111 @@ def _entry_stats(entry) -> dict:
         return {}
 
 
+def _snap(custom_stats, scenario: str, metric: str) -> dict:
+    """Look up exact samples for (scenario, metric); {} when absent."""
+    if not custom_stats:
+        return {}
+    return custom_stats.get((scenario, metric)) or {}
+
+
+def _enrich_scenario(sc: dict, custom_stats: dict) -> None:
+    """Attach derived custom-metric fields to a scenario report entry."""
+    name = sc["scenario"]
+    ttft_e = _snap(custom_stats, name, "ttft_ms")
+    ttft = sc["methods"].get("TTFT", {})
+    sc["ttft_p95_ms"] = ttft_e.get("p95") if ttft_e else ttft.get("p95")
+    sc["ttft_avg_ms"] = ttft_e.get("avg") if ttft_e else ttft.get("avg_ms")
+    toks = sc["methods"].get("TOKENS", {})
+    sc["total_tokens"] = int(toks.get("requests", 0) or 0)
+    tps_e = _snap(custom_stats, name, "tokens_per_sec")
+    tps = sc["methods"].get("TOKENS_PER_SEC", {})
+    sc["tokens_per_sec_avg"] = tps_e.get("avg") if tps_e else tps.get("avg_ms")
+    itps_e = _snap(custom_stats, name, "input_tokens_per_sec")
+    itps = sc["methods"].get("INPUT_TOKENS_PER_SEC", {})
+    sc["input_tokens_per_sec_avg"] = itps_e.get("avg") if itps_e else itps.get("avg_ms")
+    # latency-family metrics: exact p95 from samples, avg fallback to entry
+    for metric, dst, method in (
+        ("tpot_ms", "tpot", "TPOT"),
+        ("gen_duration_ms", "gen_duration", "GEN_DURATION"),
+        ("itl_avg_ms", "itl_avg", "ITL_AVG"),
+        ("itl_p95_ms", "itl_p95", "ITL_P95"),
+        ("queue_wait_ms", "queue_wait", "QUEUE_WAIT"),
+    ):
+        se = _snap(custom_stats, name, metric)
+        m = sc["methods"].get(method, {})
+        sc[f"{dst}_avg_ms"] = se.get("avg") if se else m.get("avg_ms")
+        sc[f"{dst}_p95_ms"] = se.get("p95") if se else m.get("p95")
+    ret_e = _snap(custom_stats, name, "retries")
+    ret = sc["methods"].get("RETRIES", {})
+    if ret_e:
+        sc["retries_total"] = ret_e.get("sum")
+        sc["retries_avg"] = ret_e.get("avg")
+    else:
+        sc["retries_total"] = (ret.get("avg_ms") or 0.0) * (ret.get("requests") or 0)
+        sc["retries_avg"] = ret.get("avg_ms")
+    tmo_e = _snap(custom_stats, name, "timeouts")
+    tmo = sc["methods"].get("TIMEOUTS", {})
+    sc["timeouts"] = int(tmo_e.get("sum") or tmo.get("requests") or 0)
+    n = sc.get("requests") or 0
+    req_failures = 0
+    for m in sc["methods"].values():
+        req_failures = max(req_failures, m.get("failures") or 0)
+    successes = max(n - req_failures, 1) if n else 0
+    cost = sc.get("cost_usd")
+    sc["cost_per_success_usd"] = (cost / successes) if cost and successes else None
+    _enrich_quality(sc, custom_stats, name)
+    _enrich_agent(sc, custom_stats, name)
+
+
+def _enrich_quality(sc: dict, custom_stats: dict, name: str) -> None:
+    q_e = _snap(custom_stats, name, "quality_score")
+    q = sc["methods"].get("QUALITY_SCORE", {})
+    if q_e:
+        sc["quality_score_avg"] = round(q_e.get("avg") or 0.0, 4)
+    elif q.get("requests"):
+        sc["quality_score_avg"] = round((q.get("avg_ms") or 0) / 1000.0, 4)
+    qp_e = _snap(custom_stats, name, "quality_pass")
+    if qp_e:
+        sc["quality_pass_rate"] = round(qp_e.get("avg") or 0.0, 4)
+    cr_e = _snap(custom_stats, name, "context_recall")
+    cr = sc["methods"].get("CONTEXT_RECALL", {})
+    if cr_e:
+        sc["context_recall_avg"] = round(cr_e.get("avg") or 0.0, 4)
+    elif cr.get("requests"):
+        sc["context_recall_avg"] = round((cr.get("avg_ms") or 0) / 1000.0, 4)
+
+
+def _enrich_agent(sc: dict, custom_stats: dict, name: str) -> None:
+    ag_run = _snap(custom_stats, name, "agent_run")
+    if not ag_run:
+        return
+    sc["agent_runs"] = int(ag_run.get("count") or 0)
+    ag_succ = _snap(custom_stats, name, "agent_success")
+    sc["agent_success_rate"] = round(ag_succ.get("avg") or 0.0, 4) if ag_succ else None
+    for metric, dst in (
+        ("agent_steps", "agent_steps_avg"),
+        ("agent_tool_calls", "agent_tool_calls_avg"),
+        ("agent_tool_errors", "agent_tool_errors_avg"),
+        ("agent_loops", "agent_loops_avg"),
+    ):
+        se = _snap(custom_stats, name, metric)
+        sc[dst] = round(se.get("avg"), 3) if se else None
+    tc = _snap(custom_stats, name, "agent_tool_calls")
+    te = _snap(custom_stats, name, "agent_tool_errors")
+    sc["agent_tool_error_rate"] = round((te.get("sum") or 0) / tc["sum"], 4) if tc and tc.get("sum") else None
+
+
 def aggregate(
     stats,
     config: PerfConfig,
     duration_s: float,
     threshold_report: ThresholdReport | None = None,
     cost_by_scenario: dict | None = None,
+    custom_stats: dict | None = None,
 ) -> dict:
-    """Build the full report dict from Locust stats."""
+    """Build the full report dict from Locust stats + exact custom samples."""
     cost_by_scenario = cost_by_scenario or {}
+    custom_stats = custom_stats or {}
     scenarios: dict[str, dict] = {}
     # group entries by scenario name
     try:
@@ -87,8 +183,15 @@ def aggregate(
     except Exception:
         total_req, total_fail = 0, 0
 
-    for name, sc in scenarios.items():
-        req = sc["methods"].get("", {}) or sc["methods"].get("GET", {}) or {}
+    for sc in scenarios.values():
+        methods = sc["methods"]
+        req = (
+            methods.get("")
+            or methods.get("POST")
+            or methods.get("GET")
+            or (max(methods.values(), key=lambda m: m.get("requests", 0)) if methods else {})
+            or {}
+        )
         n = req.get("requests", 0)
         sc.update(
             {
@@ -101,43 +204,10 @@ def aggregate(
                 "p95_ms": req.get("p95"),
                 "p99_ms": req.get("p99"),
                 "rps": (n / duration_s) if duration_s else None,
-                "cost_usd": cost_by_scenario.get(name),
+                "cost_usd": cost_by_scenario.get(sc["scenario"]),
             }
         )
-        # derived custom stats
-        ttft = sc["methods"].get("TTFT", {})
-        sc["ttft_p95_ms"] = ttft.get("p95")
-        sc["ttft_avg_ms"] = ttft.get("avg_ms")
-        toks = sc["methods"].get("TOKENS", {})
-        sc["total_tokens"] = int(toks.get("requests", 0) or 0)
-        tps = sc["methods"].get("TOKENS_PER_SEC", {})
-        sc["tokens_per_sec_avg"] = tps.get("avg_ms")
-        itps = sc["methods"].get("INPUT_TOKENS_PER_SEC", {})
-        sc["input_tokens_per_sec_avg"] = itps.get("avg_ms")
-        for src, dst in (
-            ("TPOT", "tpot"),
-            ("GEN_DURATION", "gen_duration"),
-            ("ITL_AVG", "itl_avg"),
-            ("ITL_P95", "itl_p95"),
-            ("QUEUE_WAIT", "queue_wait"),
-        ):
-            m = sc["methods"].get(src, {})
-            sc[f"{dst}_avg_ms"] = m.get("avg_ms")
-            sc[f"{dst}_p95_ms"] = m.get("p95")
-        ret = sc["methods"].get("RETRIES", {})
-        sc["retries_total"] = (ret.get("avg_ms") or 0.0) * (ret.get("requests") or 0)
-        sc["retries_avg"] = ret.get("avg_ms")
-        tmo = sc["methods"].get("TIMEOUTS", {})
-        sc["timeouts"] = int(tmo.get("requests") or 0)
-        cost = sc.get("cost_usd")
-        successes = max(n - (req.get("failures") or 0), 1) if n else 0
-        sc["cost_per_success_usd"] = (cost / successes) if cost and successes else None
-        q = sc["methods"].get("QUALITY_SCORE", {})
-        if q.get("requests"):
-            sc["quality_score_avg"] = round((q.get("avg_ms") or 0) / 1000.0, 4)
-        cr = sc["methods"].get("CONTEXT_RECALL", {})
-        if cr.get("requests"):
-            sc["context_recall_avg"] = round((cr.get("avg_ms") or 0) / 1000.0, 4)
+        _enrich_scenario(sc, custom_stats)
 
     verdicts = []
     if threshold_report:
@@ -214,6 +284,12 @@ def write_reports(
                     "context_recall_avg": sc.get("context_recall_avg"),
                     "cost_usd": sc.get("cost_usd"),
                     "cost_per_success_usd": sc.get("cost_per_success_usd"),
+                    "agent_runs": sc.get("agent_runs"),
+                    "agent_success_rate": sc.get("agent_success_rate"),
+                    "agent_steps_avg": sc.get("agent_steps_avg"),
+                    "agent_tool_calls_avg": sc.get("agent_tool_calls_avg"),
+                    "agent_tool_error_rate": sc.get("agent_tool_error_rate"),
+                    "agent_loops_avg": sc.get("agent_loops_avg"),
                 }
             )
         if rows:

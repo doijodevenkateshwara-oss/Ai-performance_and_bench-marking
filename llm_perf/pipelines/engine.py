@@ -7,21 +7,30 @@ import os
 import time
 
 from ..config import PipelineStage
-from ..metrics import record_stage, stage_span
+from ..metrics import estimate_cost, record_stage, stage_span
 from ..providers import RequestSpec, call_llm
 
 
 class StageContext:
-    def __init__(self, question: str, row: dict | None, scenario: str, target_params: dict):
+    def __init__(
+        self,
+        question: str,
+        row: dict | None,
+        scenario: str,
+        target_params: dict,
+        pricing=None,
+    ):
         self.question = question
         self.row = row or {}
         self.scenario = scenario
         self.params = target_params
+        self.pricing = pricing
         self.docs: list[dict] = []  # retrieved docs {text, score, ...}
         self.context_texts: list[str] = []
         self.output_text = ""
         self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
         self.stage_metrics: dict[str, float] = {}
+        self.agent_eval: dict = {}  # populated by the agent stage
 
 
 def _llm_ref_params(llm: dict, default_provider: str = "openai") -> dict:
@@ -308,6 +317,132 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
     return "", time.monotonic() - start
 
 
+def _agent_signature(name: str, args: dict) -> str:
+    try:
+        canon = json.dumps(args or {}, sort_keys=True, default=str)
+    except Exception:
+        canon = str(args)
+    return f"{name}:{canon}"
+
+
+def _evaluate_agent_success(stage: PipelineStage, ctx: StageContext, ev: dict) -> bool:
+    """Decide task success from termination + optional answer matching."""
+    cfg = stage.success
+    ok_terminated = ev["terminated"] == "final_answer" or (
+        ev["terminated"] == "max_iterations" and cfg is not None and cfg.on_max_iterations == "pass"
+    )
+    if not ok_terminated or ev["final_empty"]:
+        return False
+    if cfg is not None:
+        if cfg.require_tool_use and ev["tool_calls"] == 0:
+            return False
+        if cfg.expected_field:
+            expected = ctx.row.get(cfg.expected_field)
+            if expected is None:
+                return False
+            out = ctx.output_text or ""
+            exp = str(expected)
+            if cfg.match == "exact":
+                ok = out.strip() == exp.strip()
+            elif cfg.match == "regex":
+                import re
+
+                ok = bool(re.search(exp, out))
+            else:  # contains
+                ok = exp.lower() in out.lower()
+            if not ok:
+                return False
+    return True
+
+
+def _new_agent_eval() -> dict:
+    return {
+        "steps": 0,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "unknown_tools": 0,
+        "arg_errors": 0,
+        "repeated_calls": 0,
+        "loops": 0,
+        "max_iter_reached": False,
+        "terminated": "error",
+        "final_empty": True,
+    }
+
+
+def _agent_llm_call(
+    ctx: StageContext,
+    llm_cfg: dict,
+    provider: str,
+    params: dict,
+    messages: list,
+    i: int,
+):
+    model = params.get("model")
+    spec = RequestSpec(
+        provider=provider,
+        prompt=ctx.question,
+        messages=list(messages),
+        params=params,
+        stream=False,
+        api_key=_resolve_key(llm_cfg),
+        base_url=llm_cfg.get("base_url"),
+        timeout_s=llm_cfg.get("timeout_s", 120.0),
+        extra={
+            "azure": llm_cfg.get("azure") or {},
+            "aws": llm_cfg.get("aws") or {},
+            "grpc": llm_cfg.get("grpc") or {},
+        },
+    )
+    with stage_span("agent_step", ctx.scenario, step=i, provider=provider, model=model):
+        start = time.monotonic()
+        resp = call_llm(spec)
+        dur = time.monotonic() - start
+    record_stage(ctx.scenario, "agent_step", dur, provider=provider, step=i)
+    return resp
+
+
+def _agent_tool_round(
+    tool_calls: list,
+    executors: dict,
+    ctx: StageContext,
+    ev: dict,
+    sig_counts: dict,
+    loop_flagged: set,
+    loop_threshold: int,
+    messages: list,
+) -> None:
+    for tc in tool_calls:
+        fn = tc.get("function", {})
+        name = fn.get("name")
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except json.JSONDecodeError:
+            args = {"input": fn.get("arguments") or ""}
+            ev["arg_errors"] += 1
+        ev["tool_calls"] += 1
+        sig = _agent_signature(name, args)
+        sig_counts[sig] = sig_counts.get(sig, 0) + 1
+        if sig_counts[sig] > loop_threshold and sig not in loop_flagged:
+            loop_flagged.add(sig)
+            ev["loops"] += 1
+            ev["repeated_calls"] += sig_counts[sig]
+        if name not in executors:
+            ev["unknown_tools"] += 1
+        result_text, tool_dur = _execute_tool(executors.get(name), name, args, ctx)
+        if (result_text or "").startswith("error:"):
+            ev["tool_errors"] += 1
+        record_stage(ctx.scenario, "agent_tool", tool_dur, tool=name)
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.get("id", ""),
+                "name": name,
+                "content": result_text[:8000],
+            }
+        )
+
+
 def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
     """Tool-use agent loop (OpenAI-compatible chat completions)."""
     llm_cfg = stage.llm or {}
@@ -319,6 +454,7 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
     tools_schema, executors = _build_agent_tools(stage.tools or [])
     model = llm_cfg.get("model", "gpt-4o")
     max_iter = stage.max_iterations or 6
+    loop_threshold = stage.loop_repeat_threshold or 3
 
     messages = [{"role": "user", "content": ctx.question}]
     params = {**llm_cfg.get("params", {}), "model": model}
@@ -327,31 +463,22 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
         params["tool_choice"] = "auto"
     total_in = total_out = 0
     steps = 0
+    cost_usd = 0.0
+
+    ev = _new_agent_eval()
+    sig_counts: dict[str, int] = {}
+    loop_flagged: set[str] = set()
 
     for i in range(max_iter):
-        spec = RequestSpec(
-            provider=provider,
-            prompt=ctx.question,
-            messages=list(messages),
-            params=params,
-            stream=False,
-            api_key=_resolve_key(llm_cfg),
-            base_url=llm_cfg.get("base_url"),
-            timeout_s=llm_cfg.get("timeout_s", 120.0),
-            extra={
-                "azure": llm_cfg.get("azure") or {},
-                "aws": llm_cfg.get("aws") or {},
-                "grpc": llm_cfg.get("grpc") or {},
-            },
-        )
-        with stage_span("agent_step", ctx.scenario, step=i, provider=provider):
-            start = time.monotonic()
-            resp = call_llm(spec)
-            dur = time.monotonic() - start
-        record_stage(ctx.scenario, "agent_step", dur, provider=provider, step=i)
+        resp = _agent_llm_call(ctx, llm_cfg, provider, params, messages, i)
         total_in += resp.prompt_tokens
         total_out += resp.completion_tokens
         steps += 1
+        ev["steps"] = steps
+        cost_usd += estimate_cost(resp.prompt_tokens, resp.completion_tokens, ctx.pricing)
+        if stage.max_cost_usd is not None and cost_usd > stage.max_cost_usd:
+            ev["terminated"] = "cost_cap"
+            break
 
         err = (resp.raw or {}).get("error") if isinstance(resp.raw, dict) else None
         if err:
@@ -360,34 +487,40 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
         tool_calls = resp.tool_calls or []
         if not tool_calls:
             ctx.output_text = resp.text
+            ev["terminated"] = "final_answer"
+            ev["final_empty"] = not (resp.text or "").strip()
             break
 
-        # append assistant message with tool calls, then tool results
-        assistant_msg = {"role": "assistant", "content": resp.text or None, "tool_calls": tool_calls}
-        messages.append(assistant_msg)
-        for tc in tool_calls:
-            fn = tc.get("function", {})
-            name = fn.get("name")
-            try:
-                args = json.loads(fn.get("arguments") or "{}")
-            except json.JSONDecodeError:
-                args = {"input": fn.get("arguments") or ""}
-            result_text, tool_dur = _execute_tool(executors.get(name), name, args, ctx)
-            record_stage(ctx.scenario, "agent_tool", tool_dur, tool=name)
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "name": name,
-                    "content": result_text[:8000],
-                }
-            )
+        messages.append({"role": "assistant", "content": resp.text or None, "tool_calls": tool_calls})
+        _agent_tool_round(tool_calls, executors, ctx, ev, sig_counts, loop_flagged, loop_threshold, messages)
     else:
+        ev["terminated"] = "max_iterations"
+        ev["max_iter_reached"] = True
         ctx.output_text = ctx.output_text or "(max agent iterations reached)"
+        ev["final_empty"] = not (ctx.output_text or "").strip()
+    if ev["terminated"] == "cost_cap":
+        ev["final_empty"] = not (ctx.output_text or "").strip()
+    _finalize_agent_eval(stage, ctx, ev, steps, cost_usd, total_in, total_out)
 
+
+def _finalize_agent_eval(
+    stage: PipelineStage,
+    ctx: StageContext,
+    ev: dict,
+    steps: int,
+    cost_usd: float,
+    total_in: int,
+    total_out: int,
+) -> None:
+    ev["success"] = _evaluate_agent_success(stage, ctx, ev)
     ctx.usage["prompt_tokens"] += total_in
     ctx.usage["completion_tokens"] += total_out
+    ctx.agent_eval = ev
     ctx.stage_metrics["agent_steps"] = steps
+    ctx.stage_metrics["agent_tool_calls"] = ev["tool_calls"]
+    ctx.stage_metrics["agent_loops"] = ev["loops"]
+    ctx.stage_metrics["agent_success"] = 1.0 if ev["success"] else 0.0
+    ctx.stage_metrics["agent_cost_usd"] = cost_usd
 
 
 _STAGE_FNS = {
@@ -399,9 +532,14 @@ _STAGE_FNS = {
 
 
 def run_pipeline(
-    stages: list[PipelineStage], question: str, row: dict | None, scenario: str, target_params: dict
+    stages: list[PipelineStage],
+    question: str,
+    row: dict | None,
+    scenario: str,
+    target_params: dict,
+    pricing=None,
 ) -> StageContext:
-    ctx = StageContext(question, row, scenario, target_params)
+    ctx = StageContext(question, row, scenario, target_params, pricing=pricing)
     for st in stages:
         fn = _STAGE_FNS.get(st.stage)
         if fn is None:

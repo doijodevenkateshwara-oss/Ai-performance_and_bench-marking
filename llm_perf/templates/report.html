@@ -51,6 +51,15 @@
 </div>
 {% endif %}
 
+{% if report.warnings %}
+<div class="verdict warn" style="display:block">
+  <b>Generator-health warnings</b>
+  <ul class="findings" style="margin:0.4rem 0 0">
+  {% for w in report.warnings %}<li>{{ w.message }} <span class="meta">({{ w.metric }}={{ w.value }} &gt; {{ w.threshold }})</span></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if es.findings %}
 <h3>Executive summary</h3>
 <ul class="findings">
@@ -172,11 +181,14 @@
 {% if report.resources.loadgen %}
 <h3>Load generator (this host)</h3>
 <table>
-<tr><th>samples</th><th>cpu avg %</th><th>cpu max %</th><th>mem avg %</th><th>mem max %</th><th>mem used max MB</th></tr>
+<tr><th>samples</th><th>cpu avg %</th><th>cpu max %</th><th>mem avg %</th><th>mem max %</th><th>mem used max MB</th>
+{% if report.resources.loadgen.scheduler_lag %}<th>loop lag avg ms</th><th>lag p95 ms</th><th>lag max ms</th>{% endif %}</tr>
 {% set lg = report.resources.loadgen %}
 <tr><td>{{ lg.samples }}</td><td>{{ lg.cpu_percent_avg }}</td><td>{{ lg.cpu_percent_max }}</td>
-<td>{{ lg.mem_percent_avg }}</td><td>{{ lg.mem_percent_max }}</td><td>{{ lg.mem_used_mb_max }}</td></tr>
+<td>{{ lg.mem_percent_avg }}</td><td>{{ lg.mem_percent_max }}</td><td>{{ lg.mem_used_mb_max }}</td>
+{% if lg.scheduler_lag %}<td>{{ lg.scheduler_lag.avg_ms }}</td><td>{{ lg.scheduler_lag.p95_ms }}</td><td>{{ lg.scheduler_lag.max_ms }}</td>{% endif %}</tr>
 </table>
+<p class="meta">Loop lag = event-loop scheduling overshoot; high lag means TTFT/ITL chunk timestamps are scheduling-inclusive — see docs/methodology.md</p>
 {% endif %}
 {% for name, t in (report.resources.targets or {}).items() %}
 <h3>Target: {{ name }}</h3>
@@ -234,6 +246,25 @@
 {% endfor %}
 </table>
 {% endif %}
+{% endif %}
+
+{% set has_agent = namespace(v=false) %}
+{% for s in report.scenarios %}{% if s.agent_runs %}{% set has_agent.v = true %}{% endif %}{% endfor %}
+{% if has_agent.v %}
+<h2>Agent evaluation</h2>
+<table>
+<tr><th>scenario</th><th>agent runs</th><th>task success %</th><th>steps avg</th><th>tool calls avg</th><th>tool error %</th><th>loops avg</th></tr>
+{% for s in report.scenarios %}
+{% if s.agent_runs %}
+<tr><td>{{ s.scenario }}</td><td>{{ s.agent_runs }}</td>
+<td class="{{ 'pass' if (s.agent_success_rate or 0) >= 0.8 else 'fail' }}">{{ "%.1f"|format((s.agent_success_rate or 0)*100) }}%</td>
+<td>{{ "%.1f"|format(s.agent_steps_avg or 0) }}</td>
+<td>{{ "%.1f"|format(s.agent_tool_calls_avg or 0) }}</td>
+<td>{{ "%.1f"|format((s.agent_tool_error_rate or 0)*100) }}%</td>
+<td>{{ "%.2f"|format(s.agent_loops_avg or 0) }}</td></tr>
+{% endif %}
+{% endfor %}
+</table>
 {% endif %}
 
 <h2>Quality</h2>

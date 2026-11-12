@@ -55,7 +55,7 @@ class LayerFactory:
         if isinstance(target, LlmApiTarget):
             layer = LlmApiLayer(target, picker)
         elif isinstance(target, PipelineTarget):
-            layer = PipelineLayer(target, picker)
+            layer = PipelineLayer(target, picker, pricing=getattr(self.config.report, "pricing", None))
         elif isinstance(target, AppEndpointTarget):
             layer = AppEndpointLayer(target, picker)
         elif isinstance(target, AppObjectTarget):
