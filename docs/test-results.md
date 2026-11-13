@@ -11,7 +11,7 @@ Every run writes files named `llm-perf-<timestamp>.{csv,json,html}` into
 | Format | Best for | Contents |
 |---|---|---|
 | CSV | Spreadsheets, quick diffs | One row per scenario with requests, failures, error rate, latency percentiles, TTFT/TPOT/ITL/gen-duration/queue-wait, tokens/sec, retries/timeouts, quality, context recall, cost, agent metrics |
-| JSON | CI, regression tracking, programmatic analysis | Full report dict: totals, per-scenario methods + enriched metrics, thresholds verdicts, load profile, phases, stages, resources, analysis, comparison, regression |
+| JSON | CI, regression tracking, programmatic analysis | Full report dict: totals, per-scenario methods + enriched metrics (quality sampling, IR metrics), thresholds verdicts, load profile, phases, stages, per-request `composition`, `cost_breakdown`, resources, analysis, comparison, regression |
 | HTML | Stakeholders, executive review | Verdict banner, summary cards, per-scenario table, latency composition chart, stage breakdown, bottleneck analysis, SLO rollup, cost, resource utilization, baseline comparison, regression detection, quality |
 
 ## Reproducibility manifest
@@ -95,9 +95,13 @@ All times are milliseconds in reports; seconds internally.
 | `retries_total` / `timeouts` | Retry attempts and timed-out requests | Reliability under flaky networks/providers |
 | `total_tokens` | Sum of prompt + completion tokens | Usage volume |
 | `quality_score_avg` | 0..1 quality score (heuristics + judge) | Correctness/helpfulness under load |
+| `quality_evaluated` / `quality_eligible` / `quality_judged` | Requests quality-scored / eligible / LLM-judge sampled | Sampling transparency — a 0.9 avg over 5 samples ≠ over 5000 |
+| `quality_sample_rate` / `quality_ci_low` / `quality_ci_high` | Effective evaluation rate and 95% CI on the mean score | Statistical confidence in the quality number |
 | `quality_pass_rate` | Fraction of quality checks passed | Binary quality gate |
 | `context_recall_avg` | RAG context recall vs expected context | Retrieval quality |
+| `recall_at_k` / `precision_at_k` / `mrr` / `ndcg` | IR metrics over the retrieved ranking (avg) | Retrieval quality vs relevance judgments (`relevant_ids`/`relevant_texts`/`expected_context`); absent when no judgments exist |
 | `cost_usd` / `cost_per_success_usd` | Estimated spend and spend per successful request | Cost efficiency |
+| `cost_breakdown` | Spend by call site: generation, reranking, embedding, agent, judge, retry, unattributed | Where the money actually goes — judge sampling and reranking are visible separately |
 | `agent_runs` / `agent_success_rate` | Agent task runs and success rate | Agent reliability |
 | `agent_steps_avg` / `agent_tool_calls_avg` / `agent_tool_errors_avg` / `agent_loops_avg` | Agent loop behavior | Efficiency and failure modes |
 
@@ -148,11 +152,23 @@ The JSON/HTML reports include an `analysis` object:
 - **slo** — rollup of threshold rules into pass/fail/not_evaluated counts
   (`skip` kept as a backward-compatible alias for `not_evaluated`)
 - **bottlenecks** — ranked findings such as:
-  - `stage` — a pipeline stage dominates e2e latency
+  - `stage` — a pipeline stage dominates e2e latency. When per-request
+    `composition` data exists the share is a **median of per-request
+    stage_ms/e2e_ms** (statistically valid); the fallback ratio of two p95s
+    is labeled `approx` in the detail text
   - `ttft_bound` — TTFT is >60% of e2e p95 (prefill/queue-bound)
   - `decode_bound` — generation duration dominates e2e (decode-bound)
   - `reliability` — high retries/timeouts
   - `queueing` — queue wait is a large share of e2e (load-generator saturation)
+
+### Latency composition semantics
+
+`report.composition` stores, per scenario, each segment's absolute `p50_ms`/`p95_ms`
+**and** `median_share_pct` — the median across requests of `segment_ms / e2e_ms`.
+The `unattributed` segment is the per-request residual (`e2e − Σ segments`),
+covering queueing/overhead between measured stages. Because shares are computed
+inside each request before aggregation, they are statistically valid; subtracting
+stage p95s from e2e p95 is never done (percentiles are not additive).
 
 ## History, baselines & regression
 

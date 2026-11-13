@@ -10,7 +10,7 @@ import os
 import time
 
 from ..config import PipelineStage
-from ..metrics import estimate_cost, record_stage, stage_span
+from ..metrics import estimate_cost, record_cost, record_stage, stage_span
 from ..providers import RequestSpec, call_llm
 
 
@@ -36,7 +36,19 @@ class StageContext:
         self.output_text = ""
         self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
         self.stage_metrics: dict[str, float] = {}
+        self.stage_durations: dict[str, float] = {}  # per-request stage ms for composition
+        self.ir_metrics: dict = {}  # recall@k/precision@k/mrr/ndcg when judgments exist
         self.agent_eval: dict = {}  # populated by the agent stage
+
+
+def _rec_stage(ctx: StageContext, name: str, dur: float, **attrs) -> None:
+    """Record a stage sample AND accumulate it on the request context.
+
+    The context copy feeds the per-request latency breakdown (composition is
+    computed per request, never by subtracting percentiles).
+    """
+    record_stage(ctx.scenario, name, dur, **attrs)
+    ctx.stage_durations[name] = ctx.stage_durations.get(name, 0.0) + dur
 
 
 def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
@@ -76,10 +88,15 @@ def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
         start = time.monotonic()
         resp = call_llm(spec)
         dur = time.monotonic() - start
-        record_stage(ctx.scenario, "generate", dur, provider=provider)
+        _rec_stage(ctx, "generate", dur, provider=provider)
         ctx.output_text = resp.text
         ctx.usage["prompt_tokens"] += resp.prompt_tokens
         ctx.usage["completion_tokens"] += resp.completion_tokens
+        record_cost(
+            ctx.scenario,
+            estimate_cost(resp.prompt_tokens, resp.completion_tokens, ctx.pricing),
+            stage="generation",
+        )
         err = resp.raw.get("error") if isinstance(resp.raw, dict) else None
         if err:
             ctx.output_text = ""
@@ -95,9 +112,10 @@ def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
         start = time.monotonic()
         docs = _retrieve(vtype, vs, ctx.question, top_k)
         dur = time.monotonic() - start
-        record_stage(ctx.scenario, "retrieve", dur, store=vtype)
+        _rec_stage(ctx, "retrieve", dur, store=vtype)
         ctx.docs = docs
         ctx.context_texts = [d.get("text", "") for d in docs]
+        ctx.ir_metrics = _ir_metrics(ctx, docs, top_k)
 
 
 def _retrieve(vtype: str, cfg: dict, query: str, top_k: int) -> list[dict]:
@@ -180,6 +198,115 @@ def _tokenize(s: str) -> list[str]:
     return re.findall(r"[a-z0-9]{3,}", s.lower())
 
 
+def _norm_text(s) -> str:
+    """Whitespace-collapsed lowercase text for relevance matching."""
+    return " ".join(str(s).lower().split())
+
+
+def _doc_id(doc: dict, idx: int) -> str:
+    """Stable document identity for relevance judgments (id fields or index)."""
+    raw = doc.get("raw")
+    for src in (doc, raw if isinstance(raw, dict) else {}):
+        for key in ("id", "_id", "doc_id", "uuid"):
+            if src.get(key) is not None:
+                return str(src[key])
+    return f"idx:{idx}"
+
+
+def _ir_metrics(ctx: StageContext, docs: list[dict], top_k: int) -> dict:
+    """Compute Recall@K / Precision@K / MRR / NDCG for one retrieval.
+
+    Relevance judgments come from the dataset row, in priority order:
+      1. `relevant_ids` / `relevant_doc_ids` — explicit doc ids (assumed to be
+         ALL relevant docs in the corpus, so recall denominator = len(ids))
+      2. `relevant_texts` — list of passages; a doc is relevant on normalized
+         text containment either direction
+      3. `expected_context` fallback — split into sentence parts (>15 chars,
+         same rule as quality.context_recall); a doc "covers" a part when
+         >=30% of the part's tokens appear in the doc. recall = covered
+         parts / total parts.
+    Returns {} when the row carries no judgments (metrics stay absent, not 0).
+    """
+    row = ctx.row or {}
+    rel_ids = row.get("relevant_ids") or row.get("relevant_doc_ids")
+    rel_texts = row.get("relevant_texts")
+    exp_ctx = row.get("expected_context")
+    if exp_ctx is None and isinstance(row.get("context"), str):
+        exp_ctx = row.get("context")
+    if not docs or (rel_ids is None and rel_texts is None and not exp_ctx):
+        return {}
+
+    k = min(top_k, len(docs))
+    retrieved = docs[:k]
+
+    # --- build per-doc relevance (binary) + per-part coverage for exp_ctx ---
+    doc_rel: list[bool] = []
+    covered_parts: set[int] = set()
+    total_parts = 0
+
+    if rel_ids is not None:
+        rel_set = {str(x) for x in (rel_ids if isinstance(rel_ids, list) else [rel_ids])}
+        for i, d in enumerate(retrieved):
+            doc_rel.append(_doc_id(d, i) in rel_set)
+        relevant_total = len(rel_set)
+    elif rel_texts is not None:
+        texts = [_norm_text(t) for t in (rel_texts if isinstance(rel_texts, list) else [rel_texts])]
+        texts = [t for t in texts if t]
+        for d in retrieved:
+            dt = _norm_text(d.get("text", ""))
+            doc_rel.append(any(t and (t in dt or dt in t) for t in texts))
+        relevant_total = len(texts)
+    else:
+        import re as _re
+
+        parts = [p.strip() for p in _re.split(r"(?<=[.!?])\s+|\n+", str(exp_ctx)) if len(p.strip()) > 15]
+        if not parts:
+            parts = [str(exp_ctx).strip()]
+        total_parts = len(parts)
+        part_terms = [set(_tokenize(p)) for p in parts]
+        for d in retrieved:
+            dterms = set(_tokenize(str(d.get("text", ""))))
+            hit = False
+            for pi, pterms in enumerate(part_terms):
+                if pterms and len(dterms & pterms) / len(pterms) >= 0.3:
+                    covered_parts.add(pi)
+                    hit = True
+            doc_rel.append(hit)
+        relevant_total = total_parts
+
+    n_rel_retrieved = sum(1 for r in doc_rel if r)
+    recall = (
+        (len(covered_parts) / total_parts)
+        if total_parts
+        else (n_rel_retrieved / relevant_total if relevant_total else None)
+    )
+    precision = n_rel_retrieved / k if k else None
+    mrr = 0.0
+    for rank, rel in enumerate(doc_rel, start=1):
+        if rel:
+            mrr = 1.0 / rank
+            break
+    # NDCG with binary gains: DCG = sum rel_i / log2(rank_i + 1), rank from 1
+    dcg = sum((1.0 if rel else 0.0) / _log2(i + 2) for i, rel in enumerate(doc_rel))
+    ideal_n = min(relevant_total if relevant_total else n_rel_retrieved, k)
+    idcg = sum(1.0 / _log2(i + 1) for i in range(1, ideal_n + 1))
+    ndcg = dcg / idcg if idcg else None
+
+    return {
+        "recall_at_k": recall,
+        "precision_at_k": precision,
+        "mrr": mrr,
+        "ndcg": ndcg,
+    }
+
+
+def _log2(x: float) -> float:
+    """log2 helper (avoids importing math for one call)."""
+    import math
+
+    return math.log2(x)
+
+
 def _retrieve_chroma(cfg: dict, query: str, top_k: int) -> list[dict]:
     """Query a local Chroma collection for top-k docs."""
     try:
@@ -212,7 +339,7 @@ def run_stage_rerank(stage: PipelineStage, ctx: StageContext) -> None:
         else:
             ctx.docs = _rerank_cross_encoder(stage, ctx)
         ctx.context_texts = [d.get("text", "") for d in ctx.docs]
-        record_stage(ctx.scenario, "rerank", time.monotonic() - start, method=method)
+        _rec_stage(ctx, "rerank", time.monotonic() - start, method=method)
 
 
 def _rerank_llm(stage: PipelineStage, ctx: StageContext) -> list[dict]:
@@ -236,6 +363,13 @@ def _rerank_llm(stage: PipelineStage, ctx: StageContext) -> list[dict]:
             timeout_s=60,
         )
         resp = call_llm(spec)
+        ctx.usage["prompt_tokens"] += resp.prompt_tokens
+        ctx.usage["completion_tokens"] += resp.completion_tokens
+        record_cost(
+            ctx.scenario,
+            estimate_cost(resp.prompt_tokens, resp.completion_tokens, ctx.pricing),
+            stage="reranking",
+        )
         try:
             score = float((resp.text or "0").strip().split()[0])
         except Exception:
@@ -451,7 +585,7 @@ def _agent_llm_call(
         start = time.monotonic()
         resp = call_llm(spec)
         dur = time.monotonic() - start
-    record_stage(ctx.scenario, "agent_step", dur, provider=provider, step=i)
+    _rec_stage(ctx, "agent_step", dur, provider=provider, step=i)
     return resp
 
 
@@ -489,7 +623,7 @@ def _agent_tool_round(
         result_text, tool_dur = _execute_tool(executors.get(name), name, args, ctx)
         if (result_text or "").startswith("error:"):
             ev["tool_errors"] += 1
-        record_stage(ctx.scenario, "agent_tool", tool_dur, tool=name)
+        _rec_stage(ctx, "agent_tool", tool_dur, tool=name)
         messages.append(
             {
                 "role": "tool",
@@ -557,6 +691,7 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
         ev["final_empty"] = not (ctx.output_text or "").strip()
     if ev["terminated"] == "cost_cap":
         ev["final_empty"] = not (ctx.output_text or "").strip()
+    record_cost(ctx.scenario, cost_usd, stage="agent")
     _finalize_agent_eval(stage, ctx, ev, steps, cost_usd, total_in, total_out)
 
 

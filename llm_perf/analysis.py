@@ -158,9 +158,32 @@ def identify_bottlenecks(report: dict) -> list[dict]:
     stages = report.get("stages") or []
     scs = _scenarios(report)
 
-    # 1) pipeline stage breakdown — stage with highest p95 share of e2e
+    # 1) pipeline stage breakdown — prefer per-request composition shares
+    #    (median of stage_ms/e2e_ms across requests). Percentile subtraction
+    #    is invalid, so we never compute "e2e p95 - stage p95"; when no
+    #    breakdown exists we fall back to the p95 ratio labeled as approx.
+    comp = report.get("composition") or {}
     for sc in scs:
         name = sc.get("scenario")
+        c = comp.get(name) or {}
+        segs = c.get("segments") or {}
+        if segs:
+            for st_name, st in sorted(
+                segs.items(), key=lambda kv: kv[1].get("median_share_pct") or 0, reverse=True
+            )[:3]:
+                share = st.get("median_share_pct") or 0.0
+                p95 = st.get("p95_ms") or 0.0
+                if share > 40 or p95 > 5000:
+                    findings.append(
+                        {
+                            "type": "stage",
+                            "severity": "high" if share > 70 else "medium",
+                            "scenario": name,
+                            "detail": f"stage '{st_name}' median share={share:.0f}% of e2e "
+                            f"(p95={p95:.0f}ms, per-request basis)",
+                        }
+                    )
+            continue
         stages_for = [s for s in stages if s.get("scenario") in (name, None)]
         total_p95 = sc.get("p95_ms") or 0
         for st in sorted(stages_for, key=lambda s: s.get("p95_ms") or 0, reverse=True)[:3]:
@@ -174,7 +197,8 @@ def identify_bottlenecks(report: dict) -> list[dict]:
                         "type": "stage",
                         "severity": "high" if share > 70 else "medium",
                         "scenario": name,
-                        "detail": f"stage '{st.get('stage')}' p95={p95:.0f}ms " f"({share:.0f}% of e2e p95)",
+                        "detail": f"stage '{st.get('stage')}' p95={p95:.0f}ms "
+                        f"(~{share:.0f}% of e2e p95, approx)",
                     }
                 )
 

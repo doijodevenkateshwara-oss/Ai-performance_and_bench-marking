@@ -64,9 +64,18 @@ def _parse_score(text: str, lo: int, hi: int) -> tuple[float | None, str]:
 
 
 def judge_score(
-    cfg: JudgeConfig, question: str, response: str, context: str | None = None, timeout_s: float = 60.0
-) -> tuple[float | None, str]:
-    """Returns (normalized_score 0..1, reason)."""
+    cfg: JudgeConfig,
+    question: str,
+    response: str,
+    context: str | None = None,
+    timeout_s: float = 60.0,
+    with_usage: bool = False,
+):
+    """Returns (normalized_score 0..1, reason) — plus token usage when with_usage.
+
+    Judge calls are real LLM spend; callers that track cost should pass
+    with_usage=True and get (score, reason, {"prompt_tokens","completion_tokens"}).
+    """
     prompt = _build_judge_prompt(cfg, question, response, context)
     params = dict(cfg.params)
     params.setdefault("model", cfg.model or "gpt-4o")
@@ -84,11 +93,17 @@ def judge_score(
     try:
         resp = call_llm(spec)
     except Exception as e:
-        return None, f"judge call failed: {e}"
+        return (None, f"judge call failed: {e}", None) if with_usage else (None, f"judge call failed: {e}")
     text = resp.text or ""
     if not text:
-        return None, "empty judge response"
+        return (None, "empty judge response", None) if with_usage else (None, "empty judge response")
     score, reason = _parse_score(text, *cfg.scale)
+    if with_usage:
+        return (
+            score,
+            reason,
+            {"prompt_tokens": resp.prompt_tokens, "completion_tokens": resp.completion_tokens},
+        )
     return score, reason
 
 

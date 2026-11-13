@@ -391,6 +391,12 @@ class ThresholdRule(BaseModel):
     min_quality_score: float | None = None
     min_quality_pass_rate: float | None = None
     min_context_recall: float | None = None
+    # information-retrieval metrics (only evaluated when the dataset row
+    # carries relevance judgments: relevant_ids / relevant_texts / expected_context)
+    min_recall_at_k: float | None = None
+    min_precision_at_k: float | None = None
+    min_mrr: float | None = None
+    min_ndcg: float | None = None
     max_cost_usd: float | None = None
     max_cost_per_success_usd: float | None = None
     # agent-stage rules

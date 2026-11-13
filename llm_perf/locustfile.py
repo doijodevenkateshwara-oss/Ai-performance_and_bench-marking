@@ -195,7 +195,7 @@ def _run_reports_and_thresholds(environment) -> None:
                 record_threshold(r.name, r.passed)
 
     report = aggregate(stats, _config, dur or 0.0, trep, cost_by_scenario, custom_stats)
-    _enrich_report(report, stage_stats)
+    _enrich_report(report, stage_stats, cost_by_scenario)
     paths = write_reports(report, _config, trep)
     from . import history
 
@@ -243,7 +243,7 @@ def _run_reports_and_thresholds(environment) -> None:
         os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
 
 
-def _enrich_report(report: dict, stage_stats: dict) -> None:
+def _enrich_report(report: dict, stage_stats: dict, cost_by_scenario: dict | None = None) -> None:
     """Attach load profile, stages, resources, analysis, comparison to report."""
     from . import analysis, history, manifest
     from .metrics import peak_users
@@ -263,6 +263,15 @@ def _enrich_report(report: dict, stage_stats: dict) -> None:
     report["phases"] = schedule_summary(_config.load)
     report["totals"]["peak_users"] = peak_users()
     report["stages"] = [{"scenario": sc, "stage": st, **vals} for (sc, st), vals in stage_stats.items()]
+
+    # per-request latency composition (percentile-safe: shares computed per
+    # request, then aggregated) + cost broken down by call-site stage
+    from .metrics import breakdown_summary
+
+    comp = breakdown_summary()
+    if comp:
+        report["composition"] = comp
+    _attach_cost_breakdown(report, cost_by_scenario)
 
     resources = {}
     if _config.report.collect_resources:
@@ -307,3 +316,35 @@ def _enrich_report(report: dict, stage_stats: dict) -> None:
     else:
         report["comparison"] = None
         report["regression"] = {"checked": False, "regressions": []}
+
+
+def _attach_cost_breakdown(report: dict, cost_by_scenario: dict | None) -> None:
+    """Attach report['cost_breakdown']: {scenario: {category: usd}}.
+
+    Canonical categories come from record_cost stage tags; "unattributed" is
+    the scenario total minus categorized spend (catches embedding spend or
+    any call site not yet tagged). Never exceeds the recorded total.
+    """
+    from .metrics import cost_stage_snapshot
+
+    cost_stages = cost_stage_snapshot()
+    if not cost_stages and not cost_by_scenario:
+        return
+    cats = ("generation", "reranking", "embedding", "agent", "judge", "retry")
+    breakdown: dict[str, dict] = {}
+    for sc, stages in cost_stages.items():
+        entry = {c: round(stages.get(c, 0.0), 6) for c in cats if stages.get(c)}
+        if entry:
+            breakdown[sc] = entry
+    for sc, total in (cost_by_scenario or {}).items():
+        if sc == "__total__" or total is None:
+            continue
+        entry = breakdown.setdefault(sc, {})
+        attributed = sum(entry.values())
+        remainder = round(max(total - attributed, 0.0), 6)
+        if remainder > 1e-9:
+            entry["unattributed"] = remainder
+        elif not entry:
+            breakdown.pop(sc, None)
+    if breakdown:
+        report["cost_breakdown"] = breakdown

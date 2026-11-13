@@ -21,6 +21,10 @@ class LayerResult:
     row: dict | None = None
     raw: Any = None
     error: str | None = None
+    # True when the layer already recorded per-stage cost breakdowns
+    # (pipeline engine does); the task layer must not re-attribute the
+    # aggregate response cost or cost_breakdown would double-count.
+    cost_attributed: bool = False
 
 
 class Layer(Protocol):

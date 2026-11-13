@@ -74,6 +74,18 @@ class LlmApiLayer:
                 span.set_attribute("llm_perf.error", redact_secrets(str(err))[:500])
                 return LayerResult(error=str(err), response=resp, row=row)
             record_response(scenario_name, resp, e2e, t.provider, model=model)
+            # per-request breakdown for streaming: ttft + decode + queue shares
+            from ..metrics import record_breakdown
+
+            parts = {}
+            if resp.ttft_s is not None:
+                parts["ttft"] = resp.ttft_s * 1000.0
+            if resp.generation_s is not None:
+                parts["generation"] = resp.generation_s * 1000.0
+            if resp.queue_wait_s is not None:
+                parts["queue_wait"] = resp.queue_wait_s * 1000.0
+            if parts:
+                record_breakdown(scenario_name, e2e * 1000.0, parts)
             log_request_event(scenario_name, e2e * 1000)
             span.set_attribute("gen_ai.usage.input_tokens", resp.prompt_tokens)
             span.set_attribute("gen_ai.usage.output_tokens", resp.completion_tokens)

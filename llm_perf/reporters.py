@@ -110,6 +110,62 @@ def _enrich_quality(sc: dict, custom_stats: dict, name: str) -> None:
         sc["context_recall_avg"] = round(cr_e.get("avg") or 0.0, 4)
     elif cr.get("requests"):
         sc["context_recall_avg"] = round((cr.get("avg_ms") or 0) / 1000.0, 4)
+    # information-retrieval metrics (only present when relevance judgments exist)
+    for metric in ("recall_at_k", "precision_at_k", "mrr", "ndcg"):
+        se = _snap(custom_stats, name, metric)
+        if se:
+            sc[metric] = round(se.get("avg") or 0.0, 4)
+            sc[metric + "_avg"] = sc[metric]
+    _enrich_quality_sampling(sc, custom_stats, name)
+
+
+def _enrich_quality_sampling(sc: dict, custom_stats: dict, name: str) -> None:
+    """Attach sampling transparency: evaluated count, rate, and 95% CIs.
+
+    QUALITY_SCORE alone hides *how much* was measured — a 0.9 avg over 3
+    samples means something different than over 3000. We report the evaluated
+    count, the effective sample rate, and normal-approximation 95% confidence
+    intervals for both the mean score and the pass rate.
+    """
+    q_e = _snap(custom_stats, name, "quality_score")
+    qp_e = _snap(custom_stats, name, "quality_pass")
+    el_e = _snap(custom_stats, name, "quality_eligible")
+    ev_e = _snap(custom_stats, name, "quality_evaluated")
+    jd_e = _snap(custom_stats, name, "quality_judged")
+    if not q_e and not qp_e and not el_e:
+        return
+    requests = sc.get("requests") or 0
+    eligible = int((el_e or {}).get("count") or 0) or requests
+    evaluated = int((ev_e or q_e or qp_e or {}).get("count") or 0)
+    judged = int((jd_e or {}).get("count") or 0)
+
+    def _ci(entry: dict) -> float | None:
+        """Normal-approx 95% CI half-width for a sample mean (None if n<2)."""
+        n = entry.get("count") or 0
+        std = entry.get("std")
+        if not n or n < 2 or std is None:
+            return None
+        return round(1.96 * std / (n**0.5), 4)
+
+    score_avg = sc.get("quality_score_avg")
+    half = _ci(q_e) if q_e else None
+    sc["quality_evaluated"] = evaluated
+    sc["quality_eligible"] = eligible
+    sc["quality_judged"] = judged
+    sc["quality_sample_rate"] = round(evaluated / eligible, 4) if eligible else None
+    sc["quality_ci_low"] = round(score_avg - half, 4) if score_avg is not None and half is not None else None
+    sc["quality_ci_high"] = round(score_avg + half, 4) if score_avg is not None and half is not None else None
+    sc["quality"] = {
+        "evaluated": evaluated,
+        "eligible": eligible,
+        "judged": judged,
+        "requests": requests,
+        "sample_rate": sc["quality_sample_rate"],
+        "score_avg": score_avg,
+        "score_ci95": half,
+        "pass_rate": sc.get("quality_pass_rate"),
+        "pass_rate_ci95": _ci(qp_e) if qp_e else None,
+    }
 
 
 def _enrich_agent(sc: dict, custom_stats: dict, name: str) -> None:

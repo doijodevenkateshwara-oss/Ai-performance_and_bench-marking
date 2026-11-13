@@ -90,6 +90,10 @@ _GAUGE_RULES = [
     ("min_quality_score", "quality_score", ">="),
     ("min_quality_pass_rate", "quality_pass_rate", ">="),
     ("min_context_recall", "context_recall", ">="),
+    ("min_recall_at_k", "recall_at_k", ">="),
+    ("min_precision_at_k", "precision_at_k", ">="),
+    ("min_mrr", "mrr", ">="),
+    ("min_ndcg", "ndcg", ">="),
     ("max_cost_usd", "cost_usd", "<="),
     ("max_cost_per_success_usd", "cost_per_success_usd", "<="),
     ("min_agent_success_rate", "agent_success_rate", ">="),
@@ -339,6 +343,21 @@ def _gauge_value(
             if v is not None:
                 return v
             e = _entry_for(stats, scenario or "", "CONTEXT_RECALL") if scenario else None
+            if e is None or e.num_requests == 0:
+                return None
+            return (e.avg_response_time or 0) / 1000.0
+        if metric in ("recall_at_k", "precision_at_k", "mrr", "ndcg"):
+            # IR metrics recorded 0..1 via record_metric; Locust entries are x1000
+            v = _snap_avg(custom_stats, scenario, metric)
+            if v is not None:
+                return v
+            entry_name = {
+                "recall_at_k": "RECALL_AT_K",
+                "precision_at_k": "PRECISION_AT_K",
+                "mrr": "MRR",
+                "ndcg": "NDCG",
+            }[metric]
+            e = _entry_for(stats, scenario or "", entry_name) if scenario else None
             if e is None or e.num_requests == 0:
                 return None
             return (e.avg_response_time or 0) / 1000.0

@@ -22,12 +22,12 @@ and observability assets. This page maps every file/directory to its role.
 | Path | Purpose |
 |---|---|
 | `llm_perf/__init__.py` | Package marker |
-| `llm_perf/cli.py` | Typer CLI: `run`, `validate`, `proto-gen`, `quality-check`, `dataset list/show/sample/import/validate`, `baseline mark/list` |
+| `llm_perf/cli.py` | Typer CLI: `run`, `validate`, `proto-gen`, `quality-check`, `dataset list/show/sample/import/validate/coverage`, `baseline mark/list` |
 | `llm_perf/config.py` | Pydantic schema for the whole YAML config: observability, security, datasets, targets (4 layers), scenarios, load, thresholds, report |
 | `llm_perf/locustfile.py` | Locust entry point: reads `LLM_PERF_CONFIG`, builds weighted `User` classes, optional `LLMPerfShape`, wires `test_start`/`test_stop`/`quitting` hooks for OTel, resource sampling, reports, thresholds, alerts |
 | `llm_perf/scenarios.py` | Turns `scenarios[]` into one Locust `User` class per scenario, with `wait_time` from `think_time` and weighted selection |
 | `llm_perf/tasks.py` | `RequestContext`: per-scenario runtime state — resolves the layer, picks prompt/dataset row, runs the request, evaluates quality, accumulates cost |
-| `llm_perf/metrics.py` | OTel instruments + Locust custom-stat bridge; exact sample store for TTFT/TPOT/ITL/gen-duration/queue-wait/retries/timeouts/quality/context-recall/agent metrics; `request_span`, `record_response`, `record_error`, `record_stage`, `record_cost`, `record_agent_eval`, `record_users`, `record_threshold`, `estimate_cost` |
+| `llm_perf/metrics.py` | OTel instruments + Locust custom-stat bridge; exact sample store for TTFT/TPOT/ITL/gen-duration/queue-wait/retries/timeouts/quality/context-recall/IR (recall@k/precision@k/MRR/NDCG)/agent metrics; per-request latency breakdown for percentile-safe composition; cost-by-call-site accumulation; `request_span`, `record_response`, `record_error`, `record_stage`, `record_cost`, `record_agent_eval`, `record_users`, `record_threshold`, `estimate_cost` |
 | `llm_perf/security.py` | Egress/execution guardrails: URL allowlist + private-network (SSRF) checks on all outbound HTTP, Python-execution gate for `python_path`/function tools, secret redaction for error stats/spans, untrusted-config audit warnings |
 | `llm_perf/reporters.py` | Aggregates Locust stats into a report dict and writes CSV/JSON/HTML under `report.output_dir` |
 | `llm_perf/thresholds.py` | SLO rule evaluation (`ThresholdRule` → `RuleResult`), threshold gauges, webhook alerts (Slack/PagerDuty/generic) |
@@ -35,7 +35,7 @@ and observability assets. This page maps every file/directory to its role.
 | `llm_perf/history.py` | Persists every run under `report.output_dir/history/`, maintains `index.jsonl`, designated/previous baselines |
 | `llm_perf/resources.py` | Load-generator host sampler (psutil CPU/mem), event-loop lag probe, Prometheus `/metrics` scraper for target-side metrics, generator-health warnings |
 | `llm_perf/workload.py` | Translates `load.profile`/`stages` into phase schedules (`Phase` list) consumed by the Locust `LoadTestShape` |
-| `llm_perf/datasets.py` | Loads YAML/CSV/JSONL datasets from local/HTTP/S3/GCS, column mapping, sampling, `{var}` templating, deterministic sharding for distributed workers, trace import |
+| `llm_perf/datasets.py` | Loads YAML/CSV/JSONL datasets from local/HTTP/S3/GCS, column mapping, sampling, `{var}` templating, deterministic sharding + `validate_shards` coverage check for distributed workers, trace import |
 | `llm_perf/prompts.py` | Loads prompt pools from inline lists or YAML/CSV/TXT files, `PromptPicker` with row/vars `{var}` rendering |
 | `llm_perf/streaming.py` | Re-exports SSE helpers (`stream_sse`, `stream_timing_stats`, OpenAI/Anthropic extractors) used by providers |
 | `llm_perf/proto.py` | CLI helper for compiling `.proto` files for gRPC targets |

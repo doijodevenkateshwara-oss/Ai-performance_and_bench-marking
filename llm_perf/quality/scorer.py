@@ -24,6 +24,7 @@ class QualityResult:
     context_recall: float | None = None
     failure_tags: list[str] = field(default_factory=list)
     judged: bool = False
+    judge_usage: dict | None = None  # {"prompt_tokens","completion_tokens"} for cost
 
 
 def evaluate_quality(
@@ -57,14 +58,16 @@ def evaluate_quality(
         sampler = judge_sampler or JudgeSampler(cfg.sample_rate)
         if sampler.should_judge():
             res.judged = True
-            s, reason = judge_score(
+            s, reason, usage = judge_score(
                 cfg.judge,
                 question=question,
                 response=response,
                 context="\n".join(retrieved_texts or []) or None,
+                with_usage=True,
             )
             res.judge_score = s
             res.judge_reason = reason
+            res.judge_usage = usage
             if s is None:
                 res.failure_tags.append("judge_error")
 

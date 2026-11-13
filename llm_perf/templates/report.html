@@ -28,9 +28,8 @@
   .delta-up { color:#cf222e; } .delta-down { color:#1a7f37; } .delta-flat { color:#666; }
   .bar-row { display:flex; align-items:center; gap:0.5rem; margin:2px 0; font-size:0.78rem; }
   .bar-label { width:180px; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .bar-track { flex:1; background:#eee; border-radius:3px; height:14px; position:relative; }
-  .bar-fill { height:100%; border-radius:3px; background:#0969da; }
-  .bar-fill.ttft { background:#8250df; } .bar-fill.gen { background:#1a7f37; }
+  .bar-track { flex:1; background:#eee; border-radius:3px; height:14px; position:relative; display:flex; overflow:hidden; }
+  .bar-fill { height:100%; background:#0969da; }
   .bar-val { width:70px; font-size:0.75rem; color:#555; }
 </style>
 </head>
@@ -119,23 +118,31 @@
 </table>
 <p class="meta">TTFT = time to first token · TPOT = time per output token · ITL = inter-token latency · gen = first→last token (decode phase)</p>
 
-{% set maxp95 = namespace(v=1) %}
-{% for s in report.scenarios %}{% if (s.p95_ms or 0) > maxp95.v %}{% set maxp95.v = s.p95_ms %}{% endif %}{% endfor %}
-{% if maxp95.v > 1 %}
-<h2>Latency composition (p95 ms)</h2>
+{% set comp = report.composition or {} %}
+{% if comp %}
+<h2>Latency composition (per-request median share of e2e)</h2>
 {% for s in report.scenarios %}
+{% set c = comp.get(s.scenario) %}
+{% if c %}
 <div class="bar-row">
   <div class="bar-label" title="{{ s.scenario }}">{{ s.scenario }}</div>
   <div class="bar-track">
-    {% set ttft = s.ttft_p95_ms or 0 %}{% set gen = s.gen_duration_p95_ms or 0 %}
-    {% set w1 = (ttft / maxp95.v * 100) if maxp95.v else 0 %}{% set w2 = (gen / maxp95.v * 100) if maxp95.v else 0 %}
-    <div class="bar-fill ttft" style="width:{{ w1 }}%"></div>
-    <div class="bar-fill gen" style="width:{{ w2 }}%"></div>
+    {% for seg_name, seg in c.segments.items() %}
+    {% if seg.median_share_pct %}
+    <div class="bar-fill" style="width:{{ seg.median_share_pct }}%;background:hsl({{ (loop.index0 * 67) % 360 }},65%,45%)"
+         title="{{ seg_name }}: {{ seg.median_share_pct }}% median share, p95 {{ '%.0f'|format(seg.p95_ms) }}ms"></div>
+    {% endif %}
+    {% endfor %}
+    {% if c.unattributed.median_share_pct %}
+    <div class="bar-fill" style="width:{{ c.unattributed.median_share_pct }}%;background:#bbb"
+         title="unattributed (queue/overhead): {{ c.unattributed.median_share_pct }}%, p95 {{ '%.0f'|format(c.unattributed.p95_ms) }}ms"></div>
+    {% endif %}
   </div>
-  <div class="bar-val">TTFT {{ "%.0f"|format(ttft) }} + gen {{ "%.0f"|format(gen) }}</div>
+  <div class="bar-val">e2e p95 {{ '%.0f'|format(s.p95_ms or 0) }}ms</div>
 </div>
+{% endif %}
 {% endfor %}
-<p class="meta"><span style="color:#8250df">■</span> TTFT (prefill+queue) &nbsp; <span style="color:#1a7f37">■</span> generation (decode)</p>
+<p class="meta">Shares are computed <b>per request</b> (segment_ms / e2e_ms, median across requests) — percentiles are never subtracted. Grey = unattributed queueing/overhead. Hover segments for p95 detail.</p>
 {% endif %}
 
 {% if report.stages %}
@@ -175,6 +182,25 @@
 {% endfor %}
 <tr><td><b>total</b></td><td><b>${{ "%.4f"|format(cost_total.v) }}</b></td><td></td><td></td></tr>
 </table>
+{% set cb_all = report.cost_breakdown or {} %}
+{% set cb = namespace(any=false) %}
+{% for s in report.scenarios %}{% if cb_all.get(s.scenario) %}{% set cb.any = true %}{% endif %}{% endfor %}
+{% if cb.any %}
+<h3>Cost breakdown by call site</h3>
+<table>
+<tr><th>scenario</th><th>generation</th><th>reranking</th><th>embedding</th><th>agent</th><th>judge</th><th>retry</th><th>unattributed</th></tr>
+{% for s in report.scenarios %}
+{% set cbd = cb_all.get(s.scenario) %}
+{% if cbd %}
+<tr><td>{{ s.scenario }}</td>
+{% for cat in ["generation","reranking","embedding","agent","judge","retry","unattributed"] %}
+<td>{{ "$%.4f"|format(cbd.get(cat) or 0.0) if cbd.get(cat) else "—" }}</td>
+{% endfor %}</tr>
+{% endif %}
+{% endfor %}
+</table>
+<p class="meta">Each LLM call is attributed to its call site (pipeline stages → generation/reranking/agent, judge → judge, direct llm_api → generation). "unattributed" = scenario total minus categorized spend. Retried successful calls are included in their call-site cost; failed attempts carry no token usage. Column sums ≈ scenario <b>cost</b> above.</p>
+{% endif %}
 {% endif %}
 
 {% if report.resources %}
@@ -270,13 +296,24 @@
 
 <h2>Quality</h2>
 <table>
-<tr><th>scenario</th><th>quality score</th><th>context recall</th></tr>
+<tr><th>scenario</th><th>quality score</th><th>evaluated</th><th>sample rate</th><th>95% CI</th><th>context recall</th><th>recall@k</th><th>prec@k</th><th>MRR</th><th>NDCG</th></tr>
 {% for s in report.scenarios %}
 <tr><td>{{ s.scenario }}</td>
   <td>{{ "%.3f"|format(s.quality_score_avg) if s.quality_score_avg is defined and s.quality_score_avg is not none else "—" }}</td>
-  <td>{{ "%.3f"|format(s.context_recall_avg) if s.context_recall_avg is defined and s.context_recall_avg is not none else "—" }}</td></tr>
+  <td>{{ s.quality_evaluated or 0 }}<span class="meta">/{{ s.quality_eligible or "?" }}</span></td>
+  <td>{{ "%.0f"|format(s.quality_sample_rate*100) ~ "%" if s.quality_sample_rate is defined and s.quality_sample_rate is not none else "—" }}</td>
+  <td>{{ "%.2f–%.2f"|format(s.quality_ci_low, s.quality_ci_high) if s.quality_ci_low is defined and s.quality_ci_low is not none else "—" }}</td>
+  <td>{{ "%.3f"|format(s.context_recall_avg) if s.context_recall_avg is defined and s.context_recall_avg is not none else "—" }}</td>
+  {% for m in ["recall_at_k","precision_at_k","mrr","ndcg"] %}
+  <td>{{ "%.3f"|format(s[m]) if s[m] is defined and s[m] is not none else "—" }}</td>
+  {% endfor %}</tr>
 {% endfor %}
 </table>
+{% set ir_any = namespace(v=false) %}
+{% for s in report.scenarios %}{% if s.recall_at_k is defined and s.recall_at_k is not none %}{% set ir_any.v = true %}{% endif %}{% endfor %}
+{% if ir_any.v %}
+<p class="meta">IR metrics (recall@k/precision@k/MRR/NDCG) require relevance judgments on dataset rows: <code>relevant_ids</code> (doc ids in retrieved order) or <code>relevant_texts</code>/<code>expected_context</code> (overlap-matched). Absent judgments → "—" (not evaluated), never a misleading 0.</p>
+{% endif %}
 
 {% if report.thresholds.all_passed is not none %}
 <h2>Threshold verdicts</h2>

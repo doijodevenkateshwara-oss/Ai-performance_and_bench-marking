@@ -18,15 +18,17 @@ metrics for every request:
 | Stage latency (`retrieve`, `rerank`, `generate`, `agent_step`, `agent_tool`) | `stages[]` in JSON, stage table in HTML, `stage.<name>.p95_ms` threshold rules | Which stage is the bottleneck — embedding/search vs LLM decode vs tool calls |
 | End-to-end latency | `p50/p90/p95/p99` per scenario | User-visible response time |
 | `CONTEXT_RECALL` | scenario stats + `min_context_recall` threshold | Fraction of `expected_context` found in retrieved docs — **retrieval quality** |
-| `QUALITY_SCORE` | scenario stats + `min_quality_score` threshold | Heuristics + optional LLM-judge score — **answer quality** |
+| `RECALL_AT_K` / `PRECISION_AT_K` / `MRR` / `NDCG` | scenario stats (`recall_at_k`, `precision_at_k`, `mrr`, `ndcg`) + `min_recall_at_k`/`min_precision_at_k`/`min_mrr`/`min_ndcg` threshold rules | Standard IR metrics over the retrieved ranking. Require relevance judgments on the row: `relevant_ids` (doc ids) or `relevant_texts` (passages); falls back to `expected_context` part-coverage. No judgments → metrics absent (not evaluated), never a misleading 0 |
+| `QUALITY_SCORE` | scenario stats + evaluated/eligible/judged counts, sample rate, 95% CI + `min_quality_score` threshold | Heuristics + optional LLM-judge score — **answer quality**. `quality_evaluated`/`quality_eligible`/`quality_judged` and `quality.sample_rate` show exactly how much was measured |
 | Token metrics | `PROMPT_TOKENS`, `COMPLETION_TOKENS`, `TOKENS_PER_SEC`, `INPUT_TOKENS_PER_SEC` | Context-window pressure and decode throughput |
-| Cost | `cost_usd`, `cost_per_success_usd` (when `report.pricing` set) | $ per run / per successful answer |
+| Cost | `cost_usd`, `cost_per_success_usd`, `cost_breakdown` (when `report.pricing` set) | $ per run / per successful answer, split by call site: `generation`, `reranking`, `embedding`, `agent`, `judge`, `retry`, `unattributed` |
+| Latency composition | `composition` in JSON, stacked-share chart in HTML | Per-request stage shares of e2e (median across requests). **Percentiles are never subtracted** — shares are computed inside each request first, then aggregated |
 | Agent stats (agent stage only) | `AGENT_STEPS`, `AGENT_TOOL_CALLS`, `AGENT_SUCCESS`, `AGENT_LOOPS` | Tool-loop behavior, iterations, loop detection |
 | Traces | Jaeger (when OTel enabled) | Per-request span waterfall: retrieve → rerank → generate |
 
 The key RAG insight: **retrieval quality and generation quality are measured
-separately**. `context_recall` isolates whether the right documents were
-found; `quality_score`/judge isolates whether the answer used them well.
+separately**. `context_recall`/IR metrics isolate whether the right documents
+were found; `quality_score`/judge isolates whether the answer used them well.
 
 ## 1. Prepare your data
 
@@ -41,8 +43,13 @@ You need two things: a **question set** and a **document store**.
 - `question` — the user query sent through the pipeline
 - `expected_answer` — optional ground truth for heuristics/judge
 - `expected_context` — **the passage that *should* be retrieved**; drives the
-  `CONTEXT_RECALL` metric. Include it whenever you can — it's the only
-  automated retrieval-quality signal.
+  `CONTEXT_RECALL` metric and the `expected_context` fallback for IR metrics.
+  Include it whenever you can.
+- `relevant_ids` — **preferred for IR metrics**: list of document ids (matching
+  `id`/`_id`/`doc_id`/`uuid` fields in your store, or `idx:N` positional ids)
+  that are relevant to this question. Enables exact Recall@K/Precision@K/MRR/NDCG.
+- `relevant_texts` — alternative: list of relevant passages; a retrieved doc
+  counts as relevant on normalized text containment.
 - Any extra columns (`category`, `difficulty`, …) are available to Jinja
   templates and `vars` pools.
 
@@ -156,6 +163,10 @@ thresholds:
       max_error_rate: 0.05
       min_quality_score: 0.6            # judge/heuristic composite >= 0.6
       min_context_recall: 0.5           # retrieval recall floor
+      min_recall_at_k: 0.6              # IR metrics (need relevant_ids/texts/expected_context)
+      min_precision_at_k: 0.3
+      min_mrr: 0.5
+      min_ndcg: 0.5
       stages:                           # per-stage SLOs
         retrieve: { p95_ms: 2000 }
         generate: { p95_ms: 40000 }
@@ -236,7 +247,16 @@ llm-perf run -c configs/rag_example.yaml --worker <MASTER_HOST> --headless
 ```
 
 Datasets are deterministically sharded across workers; reports/thresholds
-fire only on the master.
+fire only on the master. Before spawning workers, verify coverage:
+
+```bash
+llm-perf dataset coverage -c configs/rag_example.yaml -w 4
+# qa_pairs: 50 rows / 4 workers -> per-worker=[13, 13, 12, 12] covered=50 OK
+```
+
+This proves the `i % workers` partition covers every row exactly once (no
+gaps, no duplicates). Each worker's manifest records the dataset SHA256, so
+runs against different dataset versions are detectable in `comparison`.
 
 ### No-credentials demo
 
@@ -260,7 +280,10 @@ Reports land in `report.output_dir` as `llm-perf-<timestamp>.{csv,json,html}`.
     "p50_ms": 4200, "p95_ms": 38500, "p99_ms": 61000,
     "ttft_p95_ms": null,          // null for non-streaming generate
     "total_tokens": 98400, "tokens_per_sec_avg": 412.5,
-    "cost_usd": 0.1482, "cost_per_success_usd": 0.00036
+    "cost_usd": 0.1482, "cost_per_success_usd": 0.00036,
+    "quality_evaluated": 412, "quality_eligible": 412, "quality_judged": 82,
+    "quality_sample_rate": 0.2, "quality": {"score_avg": 0.81, "score_ci95": 0.03, …},
+    "recall_at_k": 0.72, "precision_at_k": 0.36, "mrr": 0.68, "ndcg": 0.61
   }],
   "stages": [
     {"scenario": "rag_load", "stage": "retrieve", "count": 412,
@@ -268,6 +291,15 @@ Reports land in `report.output_dir` as `llm-perf-<timestamp>.{csv,json,html}`.
     {"scenario": "rag_load", "stage": "generate", "count": 412,
      "avg_ms": 3900.0, "p95_ms": 37000.0, "max_ms": 58000.0}
   ],
+  "composition": {
+    "rag_load": {"requests": 412,
+      "segments": {"retrieve": {"p50_ms": 1.2, "p95_ms": 4.2, "median_share_pct": 0.05},
+                   "generate": {"p50_ms": 3900.0, "p95_ms": 37000.0, "median_share_pct": 0.56}},
+      "unattributed": {"p50_ms": 800.0, "p95_ms": 15000.0, "median_share_pct": 0.39}}
+  },
+  "cost_breakdown": {
+    "rag_load": {"generation": 0.12, "reranking": 0.02, "judge": 0.008, "unattributed": 0.0004}
+  },
   "analysis": {
     "executive_summary": "…", "slo": {…}, "bottlenecks": ["decode_bound"]
   },
@@ -280,8 +312,11 @@ Reports land in `report.output_dir` as `llm-perf-<timestamp>.{csv,json,html}`.
 **CSV** — one row per scenario; filter/pivot in a spreadsheet.
 
 **HTML** — verdict banner, per-scenario table, latency-composition chart
-(retrieval vs generation split), stage breakdown, bottleneck callouts, SLO
-rollup, cost, resources, baseline comparison. Open it in a browser.
+(**per-request median shares** of e2e — retrieval/generation/queue segments,
+never p95 subtraction), stage breakdown, bottleneck callouts, SLO rollup,
+quality table (evaluated counts, sample rate, 95% CI, IR metrics), cost +
+cost-by-call-site breakdown, resources, baseline comparison. Open it in a
+browser.
 
 **Live telemetry** (when `docker compose up -d` is running):
 

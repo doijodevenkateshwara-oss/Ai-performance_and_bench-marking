@@ -46,6 +46,15 @@ class PipelineLayer:
                 span.set_attribute("error", True)
                 return LayerResult(error=str(e), row=row)
             e2e = time.monotonic() - start
+            # per-request latency breakdown + IR metrics (composition is
+            # aggregated per request — never by subtracting percentiles)
+            from ..metrics import record_breakdown, record_ir_metrics
+
+            parts = {k: v * 1000.0 for k, v in (ctx.stage_durations or {}).items()}
+            if parts:
+                record_breakdown(scenario_name, e2e * 1000.0, parts)
+            if ctx.ir_metrics:
+                record_ir_metrics(scenario_name, ctx.ir_metrics)
             # agent-stage evaluation metrics (success/tool/loop counters)
             if ctx.agent_eval:
                 from ..metrics import record_agent_eval
@@ -75,4 +84,5 @@ class PipelineLayer:
                 response=resp,
                 row=row,
                 retrieved_texts=ctx.context_texts,
+                cost_attributed=True,
             )

@@ -292,6 +292,40 @@ def ds_sample(name: str, config: str = typer.Option(..., "-c", "--config"), n: i
         console.print(str(ds.sample(rng))[:300])
 
 
+@dataset_app.command("coverage")
+def ds_coverage(
+    config: str = typer.Option(..., "-c", "--config"),
+    workers: int = typer.Option(2, "-w", "--workers", help="worker count to validate coverage for"),
+):
+    """Verify configured datasets shard cleanly across N distributed workers.
+
+    Checks that the deterministic i % workers partition covers every row
+    exactly once — no gaps, no duplicates — before a distributed run.
+    """
+    cfg = _load_or_exit(config, skip_connectivity=True)
+    if workers < 1:
+        console.print("[red]--workers must be >= 1[/red]")
+        raise typer.Exit(2)
+    from .datasets import Dataset, validate_shards
+
+    all_ok = True
+    for name, ds_cfg in cfg.datasets.items():
+        ds = Dataset.load(name, ds_cfg)
+        v = validate_shards(ds.rows, workers)
+        status = "[green]OK[/green]" if v["ok"] else "[red]FAIL[/red]"
+        console.print(
+            f"{name}: {v['rows']} rows / {workers} workers -> "
+            f"per-worker={v['per_worker']} covered={v['covered']} {status}"
+        )
+        if v["missing"]:
+            console.print(f"  [red]missing row indices: {v['missing']}[/red]")
+        if v["duplicates"]:
+            console.print(f"  [red]duplicate row indices: {v['duplicates']}[/red]")
+        all_ok = all_ok and v["ok"]
+    if not all_ok:
+        raise typer.Exit(1)
+
+
 @dataset_app.command("import")
 def ds_import(
     input: str = typer.Option(..., "--from"),

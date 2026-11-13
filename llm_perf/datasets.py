@@ -65,8 +65,39 @@ class Dataset:
         """Deterministic shard for distributed runs."""
         if num_workers <= 1:
             return self
-        rows = [r for i, r in enumerate(self.rows) if i % num_workers == worker_index]
+        keep = set(shard_indices(len(self.rows), num_workers)[worker_index])
+        rows = [r for i, r in enumerate(self.rows) if i in keep]
         return Dataset(self.name, rows, self.config)
+
+
+def shard_indices(n_rows: int, num_workers: int) -> list[list[int]]:
+    """Deterministic i % num_workers partition — single source of truth for sharding."""
+    return [[i for i in range(n_rows) if i % num_workers == w] for w in range(num_workers)]
+
+
+def validate_shards(rows: list, num_workers: int) -> dict:
+    """Verify N workers collectively cover `rows` exactly once (no gaps/dupes).
+
+    Distributed runs shard by row index; this proves the partition is a cover
+    of the intended dataset before workers are spawned. Note it validates the
+    *plan* — it cannot detect workers running different dataset versions;
+    compare manifest.datasets sha256 across runs for that.
+    """
+    n = len(rows)
+    plan = shard_indices(n, num_workers)
+    covered = [i for part in plan for i in part]
+    covered_set = set(covered)
+    missing = sorted(set(range(n)) - covered_set)
+    dupes = sorted(i for i in covered_set if covered.count(i) > 1)
+    return {
+        "rows": n,
+        "workers": num_workers,
+        "per_worker": [len(p) for p in plan],
+        "covered": len(covered_set),
+        "missing": missing[:50],
+        "duplicates": dupes[:50],
+        "ok": not missing and not dupes,
+    }
 
 
 def _detect_format(source: str) -> str:
