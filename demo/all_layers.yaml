@@ -1,0 +1,179 @@
+# Demo: all four layers against the local mock server (demo/mock_server.py).
+# No API keys needed — every provider points at http://127.0.0.1:8901/v1.
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-demo-evidence
+    sample_ratio: 1.0
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+    sample: { strategy: first, count: 10 }
+
+targets:
+  # --- layer 1: direct LLM API (unary + streaming) ---
+  - name: openai_unary
+    layer: llm_api
+    provider: openai
+    base_url: http://127.0.0.1:8901/v1
+    stream: false
+    params: { model: mock-model, max_tokens: 64 }
+    prompts: ["What is Kubernetes?", "Explain the CAP theorem.", "Define observability."]
+
+  - name: openai_stream
+    layer: llm_api
+    provider: openai
+    base_url: http://127.0.0.1:8901/v1
+    stream: true
+    params: { model: mock-model, max_tokens: 64 }
+    prompts: ["Stream me a haiku about clouds.", "Tell me a short story."]
+
+  # --- layer 2a: declarative RAG pipeline ---
+  - name: rag_pipeline
+    layer: pipeline
+    dataset: qa_pairs
+    pipeline:
+      - stage: retrieve
+        vector_store: { type: json, path: datasets/docs.jsonl }
+        top_k: 2
+      - stage: generate
+        template: ../prompts/rag_answer.j2
+        llm:
+          provider: openai
+          model: mock-model
+          base_url: http://127.0.0.1:8901/v1
+          params: { max_tokens: 128, temperature: 0.1 }
+
+  # --- layer 2b: agent pipeline (tool calls: http + python function) ---
+  - name: support_agent
+    layer: pipeline
+    dataset: qa_pairs
+    pipeline:
+      - stage: agent
+        max_iterations: 4
+        loop_repeat_threshold: 3
+        llm:
+          provider: openai
+          model: mock-model
+          base_url: http://127.0.0.1:8901/v1
+          params: { temperature: 0.1, max_tokens: 256 }
+        tools:
+          - name: search_docs
+            type: http
+            description: Search the internal docs index
+            url: http://127.0.0.1:8901/search
+          - name: echo
+            type: function
+            description: Echo the input back
+            import_path: demo.dummy_tools:echo
+
+  # --- layer 3: black-box app endpoint ---
+  - name: chat_endpoint
+    layer: app_endpoint
+    transport: http
+    method: POST
+    base_url: http://127.0.0.1:8901
+    endpoint: /v1/chat/completions
+    request_template: '{"model": "mock-model", "messages": [{"role": "user", "content": "{{ prompt }}"}], "max_tokens": 32}'
+    response_mapping: { text: "choices.0.message.content" }
+    prompts: ["Ping the endpoint", "Say hi to the API"]
+
+  # --- layer 4: in-process app object ---
+  - name: dummy_app
+    layer: app_object
+    framework: generic
+    python_path: demo.dummy_app:build
+    call: invoke
+    init_args: { prefix: "evidence-app" }
+    prompts: ["hello app", "status check"]
+
+scenarios:
+  - name: llm_unary_load
+    target: openai_unary
+    weight: 10
+    think_time: [0.1, 0.3]
+    quality:
+      sample_rate: 1.0
+      heuristics: { non_empty: true, min_chars: 5 }
+      judge:
+        provider: openai
+        model: mock-model
+        base_url: http://127.0.0.1:8901/v1
+        rubric: "Score the response quality from 1 to 5."
+        scale: [1, 5]
+
+  - name: llm_stream_load
+    target: openai_stream
+    weight: 10
+    think_time: [0.1, 0.3]
+
+  - name: rag_load
+    target: rag_pipeline
+    weight: 10
+    think_time: [0.2, 0.5]
+    quality:
+      sample_rate: 1.0
+      heuristics: { non_empty: true, min_chars: 5 }
+      rag: {}
+
+  - name: agent_load
+    target: support_agent
+    weight: 10
+    think_time: [0.2, 0.5]
+    quality:
+      sample_rate: 1.0
+      heuristics: { non_empty: true }
+
+  - name: endpoint_load
+    target: chat_endpoint
+    weight: 10
+    think_time: [0.1, 0.3]
+
+  - name: object_load
+    target: dummy_app
+    weight: 10
+    think_time: [0.1, 0.3]
+
+load:
+  profile: smoke
+  users: 6
+  spawn_rate: 6
+  duration: 45s
+  ramp_up: 5s
+  ramp_down: 5s
+
+thresholds:
+  on_fail: warn
+  on_not_evaluated: warn
+  scenarios:
+    llm_unary_load:
+      p95_ms: 30000
+      max_error_rate: 0.5
+      min_quality_score: 0.5
+    llm_stream_load:
+      ttft_p95_ms: 5000     # streaming only — real TTFT samples
+      p95_ms: 30000
+    rag_load:
+      p95_ms: 60000
+      stages:
+        retrieve: { p95_ms: 5000 }
+        generate: { p95_ms: 30000 }
+    agent_load:
+      min_agent_success_rate: 0.5
+      p95_ms: 60000
+    endpoint_load:
+      p95_ms: 30000
+    object_load:
+      p95_ms: 30000
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/demo-evidence/all-layers
+  collect_resources: true
+  pricing: { input_per_1k: 0.00015, output_per_1k: 0.0006 }

@@ -38,6 +38,21 @@ Example JSON highlights (`llm-perf-20261112-185115.json`):
 - **Analysis verdict**: `PASS`; bottleneck flagged as `decode_bound` (generation p95 dominates e2e)
 - **Resources**: load generator CPU avg 17.8%, mem max 27.2%, scheduler lag p95 1.04 ms — healthy
 
+### Demo evidence pack (`demo/`)
+
+`docs/sample-results/demo-*.json|html` are committed outputs of the dummy
+targets in `demo/` (see `demo/README.md` for how to reproduce):
+
+- **`demo-all-layers`** — 6 scenarios / ~1.1k requests covering all four
+  layers: `llm_api` unary + streaming, `pipeline` RAG (retrieve→generate with
+  stage metrics + context recall), `pipeline` agent (http + python tools,
+  AGENT_STEPS/TOOL_CALLS stats), `app_endpoint`, `app_object`. Includes
+  heuristics + LLM-judge quality scores.
+- **`demo-thresholds-security`** — three-state threshold evidence in one
+  report: `pass` rules on a healthy target, `fail` on a metadata endpoint
+  blocked by `security.url_allowlist` (exit code 1), and `not_evaluated`
+  for a TTFT rule on a unary target.
+
 ## Key metrics
 
 All times are milliseconds in reports; seconds internally.

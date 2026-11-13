@@ -53,7 +53,11 @@ def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
     else:
         template = Template(stage.template or "{{question}}\n\nContext:\n{{context}}")
     context = "\n\n".join(ctx.context_texts)
-    prompt = template.render(question=ctx.question, context=context, row=ctx.row, **ctx.row)
+    # row fields expand into template vars, but reserved names (question,
+    # context, row) are supplied explicitly — a dataset column literally
+    # named e.g. "question" must not collide with the explicit kwarg.
+    row_vars = {k: v for k, v in ctx.row.items() if k not in ("question", "context", "row")}
+    prompt = template.render(question=ctx.question, context=context, row=ctx.row, **row_vars)
     spec = RequestSpec(
         provider=provider,
         prompt=prompt,

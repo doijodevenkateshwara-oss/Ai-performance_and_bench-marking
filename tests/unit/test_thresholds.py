@@ -187,3 +187,22 @@ def test_status_three_states():
     rep = evaluate(stats, cfg, ["chat_load"], duration_s=60, total_requests=100, total_failures=1)
     states = {r.status for r in rep.results}
     assert {"pass", "fail", "not_evaluated"} <= states
+
+
+def test_zero_request_entry_is_not_evaluated():
+    """A pre-created stats entry with 0 requests must NOT pass as 0ms.
+
+    Locust registers custom-stat entries (e.g. TTFT) at scenario start, so an
+    entry can exist with num_requests=0. Its "percentile" is meaningless — the
+    rule must be NOT_EVALUATED, matching the missing-entry behavior.
+    """
+    stats = FakeStats(
+        [
+            FakeEntry("chat_load", "", requests=100, failures=0, p95=500),
+            FakeEntry("chat_load", "TTFT", requests=0, p95=0),  # registered, no samples
+        ]
+    )
+    cfg = ThresholdsConfig.model_validate({"scenarios": {"chat_load": {"ttft_p95_ms": 1000}}})
+    rep = evaluate(stats, cfg, ["chat_load"], duration_s=60, total_requests=100, total_failures=0)
+    assert rep.results[0].status == "not_evaluated"
+    assert rep.results[0].actual is None

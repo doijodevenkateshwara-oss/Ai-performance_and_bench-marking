@@ -1,0 +1,62 @@
+# Demo: three-state thresholds (pass/fail/not_evaluated) + SSRF blocking.
+# - ok_chat: healthy mock target -> PASS rules
+# - blocked_ep: link-local address -> every request blocked by security policy -> FAIL + NOT_EVALUATED
+observability:
+  otel:
+    enabled: false
+
+security:
+  # Egress allowlist: only the mock server host is permitted. The metadata
+  # target below is blocked before any socket is opened.
+  url_allowlist: ["127.0.0.1", "localhost"]
+  trusted: true
+
+targets:
+  - name: ok_chat
+    layer: llm_api
+    provider: openai
+    base_url: http://127.0.0.1:8901/v1
+    params: { model: mock-model, max_tokens: 32 }
+    prompts: ["hello", "ping", "status"]
+
+  - name: blocked_ep
+    layer: app_endpoint
+    transport: http
+    method: GET
+    base_url: http://169.254.169.254   # cloud metadata IP — must be blocked
+    endpoint: /latest/meta-data
+    prompts: ["steal metadata"]
+
+scenarios:
+  - name: ok_load
+    target: ok_chat
+    weight: 10
+    think_time: [0.1, 0.3]
+
+  - name: blocked_load
+    target: blocked_ep
+    weight: 10
+    think_time: [0.1, 0.3]
+
+load:
+  users: 4
+  spawn_rate: 4
+  duration: 30s
+  ramp_up: 3s
+  ramp_down: 3s
+
+thresholds:
+  on_fail: fail                  # real FAIL -> nonzero CI exit
+  on_not_evaluated: warn         # missing-data rules -> warning only
+  scenarios:
+    ok_load:
+      p95_ms: 30000              # PASS
+      max_error_rate: 0.1        # PASS
+      ttft_p95_ms: 5000          # NOT_EVALUATED (unary target, no TTFT data)
+    blocked_load:
+      max_error_rate: 0.5        # FAIL — every request is blocked
+      p95_ms: 30000              # NOT_EVALUATED (no successful requests)
+
+report:
+  formats: [json, html]
+  output_dir: results/demo-evidence/thresholds-security

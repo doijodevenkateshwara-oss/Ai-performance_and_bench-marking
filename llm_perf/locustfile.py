@@ -229,7 +229,7 @@ def _run_reports_and_thresholds(environment) -> None:
                 )
             print(f"[llm-perf] THRESHOLD FAILURES ({'; '.join(reasons)}) — exiting nonzero")
             os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
-        elif trep.should_warn:
+        if trep.should_warn:
             names = ", ".join(r.name for r in trep.not_evaluated[:10])
             print(
                 f"[llm-perf] WARNING: {len(trep.not_evaluated)} threshold rule(s) "

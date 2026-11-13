@@ -257,8 +257,13 @@ def _global_entry(stats):
 
 
 def _percentile(entry, pct: float) -> float | None:
-    """Response-time percentile from a stats entry (API-tolerant)."""
-    if entry is None:
+    """Response-time percentile from a stats entry (API-tolerant).
+
+    Locust pre-creates stat entries (e.g. TTFT) even when zero samples were
+    recorded; a zero-request entry has no real percentile — return None so the
+    rule is NOT_EVALUATED instead of silently passing on a 0ms "measurement".
+    """
+    if entry is None or getattr(entry, "num_requests", 1) == 0:
         return None
     try:
         return entry.get_response_time_percentile(pct)

@@ -1,0 +1,333 @@
+{
+  "generated_at": "2026-11-13T10:10:01+0530",
+  "duration_s": 30.126847743988037,
+  "totals": {
+    "requests": 588,
+    "failures": 610,
+    "error_rate": 1.0374149659863945,
+    "peak_users": 4
+  },
+  "scenarios": [
+    {
+      "scenario": "blocked_load",
+      "methods": {
+        "LLM_ERROR": {
+          "requests": 0,
+          "failures": 305,
+          "error_rate": 0.0,
+          "avg_ms": 0.0,
+          "min_ms": null,
+          "max_ms": 0,
+          "p50": 0,
+          "p90": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "POST": {
+          "requests": 305,
+          "failures": 305,
+          "error_rate": 1.0,
+          "avg_ms": 0.031366472131728676,
+          "min_ms": 0.017500000012660166,
+          "max_ms": 0.07541300010416307,
+          "p50": 0,
+          "p90": 0,
+          "p95": 0,
+          "p99": 0
+        }
+      },
+      "requests": 305,
+      "failures": 305,
+      "error_rate": 1.0,
+      "avg_ms": 0.031366472131728676,
+      "p50_ms": 0,
+      "p90_ms": 0,
+      "p95_ms": 0,
+      "p99_ms": 0,
+      "rps": 10.123860371713276,
+      "cost_usd": null,
+      "ttft_p95_ms": null,
+      "ttft_avg_ms": null,
+      "total_tokens": 0,
+      "tokens_per_sec_avg": null,
+      "input_tokens_per_sec_avg": null,
+      "tpot_avg_ms": null,
+      "tpot_p95_ms": null,
+      "gen_duration_avg_ms": null,
+      "gen_duration_p95_ms": null,
+      "itl_avg_avg_ms": null,
+      "itl_avg_p95_ms": null,
+      "itl_p95_avg_ms": null,
+      "itl_p95_p95_ms": null,
+      "queue_wait_avg_ms": null,
+      "queue_wait_p95_ms": null,
+      "retries_total": 0.0,
+      "retries_avg": null,
+      "timeouts": 0,
+      "cost_per_success_usd": null
+    },
+    {
+      "scenario": "ok_load",
+      "methods": {
+        "TOKENS": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 32.0,
+          "min_ms": 32,
+          "max_ms": 32,
+          "p50": 32,
+          "p90": 32,
+          "p95": 32,
+          "p99": 32
+        },
+        "PROMPT_TOKENS": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 24.0,
+          "min_ms": 24,
+          "max_ms": 24,
+          "p50": 24,
+          "p90": 24,
+          "p95": 24,
+          "p99": 24
+        },
+        "COMPLETION_TOKENS": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 8.0,
+          "min_ms": 8,
+          "max_ms": 8,
+          "p50": 8,
+          "p90": 8,
+          "p95": 8,
+          "p99": 8
+        },
+        "TOKENS_PER_SEC": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 3073.149188079873,
+          "min_ms": 180.33033361291112,
+          "max_ms": 4969.527478752552,
+          "p50": 5000,
+          "p90": 5000,
+          "p95": 5000,
+          "p99": 5000
+        },
+        "INPUT_TOKENS_PER_SEC": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 9219.447564239616,
+          "min_ms": 540.9910008387334,
+          "max_ms": 14908.582436257659,
+          "p50": 15000,
+          "p90": 15000,
+          "p95": 15000,
+          "p99": 15000
+        },
+        "QUEUE_WAIT": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 0.0760327349922115,
+          "min_ms": 0.04386199998407392,
+          "max_ms": 0.12371399998301058,
+          "p50": 0,
+          "p90": 0,
+          "p95": 0,
+          "p99": 0
+        },
+        "POST": {
+          "requests": 283,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 10.16020027561575,
+          "min_ms": 1.6098109999802546,
+          "max_ms": 44.36303000011321,
+          "p50": 44,
+          "p90": 44,
+          "p95": 44,
+          "p99": 44
+        },
+        "TTFT": {
+          "requests": 0,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 0.0,
+          "min_ms": null,
+          "max_ms": 0,
+          "p50": 0,
+          "p90": 0,
+          "p95": 0,
+          "p99": 0
+        }
+      },
+      "requests": 283,
+      "failures": 0,
+      "error_rate": 0.0,
+      "avg_ms": 10.16020027561575,
+      "p50_ms": 44,
+      "p90_ms": 44,
+      "p95_ms": 44,
+      "p99_ms": 44,
+      "rps": 9.393614705556908,
+      "cost_usd": null,
+      "ttft_p95_ms": 0,
+      "ttft_avg_ms": 0.0,
+      "total_tokens": 283,
+      "tokens_per_sec_avg": 3073.149188079871,
+      "input_tokens_per_sec_avg": 9219.447564239612,
+      "tpot_avg_ms": null,
+      "tpot_p95_ms": null,
+      "gen_duration_avg_ms": null,
+      "gen_duration_p95_ms": null,
+      "itl_avg_avg_ms": null,
+      "itl_avg_p95_ms": null,
+      "itl_p95_avg_ms": null,
+      "itl_p95_p95_ms": null,
+      "queue_wait_avg_ms": 0.0760327349922115,
+      "queue_wait_p95_ms": 0.11114400012957049,
+      "retries_total": 0.0,
+      "retries_avg": null,
+      "timeouts": 0,
+      "cost_per_success_usd": null
+    }
+  ],
+  "thresholds": {
+    "all_passed": false,
+    "failed": [
+      "scenario:blocked_load.max_error_rate"
+    ],
+    "not_evaluated": [
+      "scenario:ok_load.ttft_p95_ms"
+    ],
+    "rules": [
+      {
+        "rule": "scenario:ok_load.p95_ms",
+        "metric": "p95_latency_ms",
+        "comparator": "<=",
+        "threshold": 30000.0,
+        "actual": 32,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:ok_load.ttft_p95_ms",
+        "metric": "ttft_p95_ms",
+        "comparator": "<=",
+        "threshold": 5000.0,
+        "actual": null,
+        "passed": null,
+        "status": "not_evaluated",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:ok_load.max_error_rate",
+        "metric": "error_rate",
+        "comparator": "<=",
+        "threshold": 0.1,
+        "actual": 0.0,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:blocked_load.p95_ms",
+        "metric": "p95_latency_ms",
+        "comparator": "<=",
+        "threshold": 30000.0,
+        "actual": 0,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:blocked_load.max_error_rate",
+        "metric": "error_rate",
+        "comparator": "<=",
+        "threshold": 0.5,
+        "actual": 1.0,
+        "passed": false,
+        "status": "fail",
+        "scope": "scenario"
+      }
+    ]
+  },
+  "load": {
+    "profile": null,
+    "users": 4,
+    "spawn_rate": 4.0,
+    "duration": "30s",
+    "run_time": null
+  },
+  "phases": [],
+  "stages": [],
+  "resources": {
+    "loadgen": {
+      "samples": 7,
+      "interval_s": 5.0,
+      "cpu_percent_avg": 15.0,
+      "cpu_percent_max": 24.2,
+      "mem_percent_avg": 33.9,
+      "mem_percent_max": 34.4,
+      "mem_used_mb_max": 5658.6,
+      "scheduler_lag": {
+        "samples": 200,
+        "interval_ms": 50.0,
+        "avg_ms": 0.83,
+        "p50_ms": 0.57,
+        "p95_ms": 1.02,
+        "max_ms": 59.25
+      }
+    }
+  },
+  "analysis": {
+    "executive_summary": {
+      "verdict": "FAIL",
+      "requests": 588,
+      "failures": 610,
+      "error_rate": 1.0374149659863945,
+      "duration_s": 30.126847743988037,
+      "scenarios": 2,
+      "headline_scenario": "blocked_load",
+      "headline": {
+        "p95_ms": 0,
+        "ttft_p95_ms": null,
+        "tokens_per_sec_avg": null,
+        "quality_score_avg": null
+      },
+      "cost_usd": null,
+      "slo": {
+        "pass": 3,
+        "fail": 1,
+        "not_evaluated": 1,
+        "skip": 1,
+        "all_passed": false
+      },
+      "findings": [
+        "Primary scenario 'blocked_load' served 305 requests at p95=0ms.",
+        "Overall error rate 103.74%.",
+        "1 SLO rule(s) failed.",
+        "1 SLO rule(s) could not be evaluated (no data)."
+      ]
+    },
+    "slo": {
+      "pass": 3,
+      "fail": 1,
+      "not_evaluated": 1,
+      "skip": 1,
+      "all_passed": false
+    },
+    "bottlenecks": []
+  },
+  "comparison": null,
+  "regression": {
+    "checked": false,
+    "regressions": []
+  }
+}
