@@ -4,6 +4,11 @@ Serves:
   POST /v1/chat/completions  — unary JSON, SSE streaming, and tool_calls
                                (returns a search_docs tool call when `tools`
                                are present and no tool result exists yet)
+  POST /v1/embeddings        — OpenAI-compatible embeddings (deterministic
+                               hash vector; exercises the embed stage)
+  POST /retrieve             — vector-store style endpoint: accepts
+                               {query, query_vector?, top_k} and returns
+                               keyword-scored docs from datasets/docs.jsonl
   POST /search               — dummy docs-search endpoint for agent http tools
   GET  /health               — liveness probe
 
@@ -78,6 +83,70 @@ def _chat_response(req: dict) -> dict:
     }
 
 
+def _embedding_response(req: dict) -> dict:
+    """Deterministic fake embeddings: hash each input into a fixed vector."""
+    inputs = req.get("input")
+    if isinstance(inputs, str):
+        inputs = [inputs]
+    data = []
+    for i, text in enumerate(inputs or []):
+        h = 0
+        for ch in str(text):
+            h = (h * 31 + ord(ch)) % (2**32)
+        vec = [((h >> (j * 4)) & 0xF) / 15.0 - 0.5 for j in range(8)]
+        data.append({"object": "embedding", "index": i, "embedding": vec})
+    return {
+        "object": "list",
+        "data": data,
+        "model": req.get("model", "mock-embed"),
+        "usage": {"prompt_tokens": sum(len(str(t).split()) for t in (inputs or [])), "total_tokens": 0},
+    }
+
+
+_DOCS = None
+
+
+def _load_docs() -> list[dict]:
+    """Load datasets/docs.jsonl once for the /retrieve mock vector store."""
+    global _DOCS
+    if _DOCS is None:
+        import os
+
+        path = os.path.join(os.path.dirname(__file__), "..", "datasets", "docs.jsonl")
+        _DOCS = []
+        try:
+            with open(path) as f:
+                for raw in f:
+                    line = raw.strip()
+                    if line:
+                        _DOCS.append(json.loads(line))
+        except OSError:
+            pass
+    return _DOCS
+
+
+def _retrieve_response(req: dict) -> dict:
+    """Keyword-overlap 'vector search' over docs.jsonl (mimics a store)."""
+    query = str(req.get("query") or "")
+    top_k = int(req.get("top_k") or 5)
+    q_tokens = set(query.lower().split())
+    scored = []
+    for d in _load_docs():
+        text = d.get("text") or d.get("content") or ""
+        overlap = len(q_tokens & set(text.lower().split()))
+        scored.append((overlap, d))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results = [
+        {
+            "id": d.get("id"),
+            "text": d.get("text") or d.get("content") or "",
+            "score": round(overlap / max(len(q_tokens), 1), 4),
+        }
+        for overlap, d in scored[:top_k]
+    ]
+    return {"results": results, "matches": results}  # matches: Pinecone-style alias
+
+
 def _sse_stream(req: dict):
     """Yield SSE lines for a streaming chat completion."""
     chunks = ["Hello", " from", " the", " llm-perf", " mock", "."]
@@ -136,6 +205,10 @@ class Handler(BaseHTTPRequestHandler):
                     pass  # client went away mid-stream — normal under load
                 return
             self._send_json(_chat_response(req))
+        elif self.path.endswith("/embeddings"):
+            self._send_json(_embedding_response(req))
+        elif self.path.endswith("/retrieve"):
+            self._send_json(_retrieve_response(req))
         elif self.path.endswith("/search"):
             q = req.get("query") or req.get("input") or ""
             self._send_json(

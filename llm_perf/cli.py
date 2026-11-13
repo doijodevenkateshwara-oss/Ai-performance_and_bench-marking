@@ -114,6 +114,11 @@ def run(
     ramp_down: str | None = typer.Option(None, "--ramp-down", help="ramp-down duration, e.g. 1m"),
 ):
     """Run a performance test."""
+    # Import locust before anything else: it gevent-patches ssl/socket, and
+    # urllib3.util.ssl_ must not be imported pre-patch (RecursionError on
+    # SSLContext.minimum_version). security.py pulls in requests/urllib3.
+    from locust.main import main as locust_main
+
     cfg = _load_or_exit(config, skip_connectivity)
     _filter_config(cfg, layers, scenarios)
     if profile:
@@ -137,8 +142,6 @@ def run(
 
     effective.write_text(yaml.safe_dump(cfg.model_dump(mode="json", by_alias=True), sort_keys=False))
     os.environ["LLM_PERF_CONFIG"] = str(effective)
-
-    from locust.main import main as locust_main
 
     args = ["-f", "locustfile.py"]
     if headless or master or workers:

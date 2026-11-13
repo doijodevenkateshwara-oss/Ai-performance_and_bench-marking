@@ -7,9 +7,13 @@ cost-by-call-site breakdown, and distributed shard validation.
 Author: Venkateshwara Doijode
 """
 
+import json
 import math
 
-from llm_perf.config import ThresholdsConfig
+import pytest
+import requests
+
+from llm_perf.config import PipelineStage, PricingConfig, ThresholdsConfig
 from llm_perf.datasets import validate_shards
 from llm_perf.metrics import (
     breakdown_summary,
@@ -20,7 +24,12 @@ from llm_perf.metrics import (
     record_ir_metrics,
     record_metric,
 )
-from llm_perf.pipelines.engine import StageContext, _ir_metrics
+from llm_perf.pipelines.engine import (
+    StageContext,
+    _ir_metrics,
+    run_stage_embed,
+    run_stage_retrieve,
+)
 from llm_perf.thresholds import evaluate
 
 # unique scenario names keep module-level metric stores isolated per test
@@ -189,3 +198,108 @@ class TestIrThresholds:
         stats = _FakeStats([_FakeEntry("th_none", "", requests=10)])
         rep = evaluate(stats, cfg, ["th_none"], 60, 10, 0, custom_stats={})
         assert rep.results[0].passed is None
+
+
+def _json_response(payload: dict, status: int = 200) -> requests.Response:
+    """Build a requests.Response with a JSON body (no network)."""
+    r = requests.Response()
+    r.status_code = status
+    r._content = json.dumps(payload).encode()
+    r._content_consumed = True
+    r.headers["Content-Type"] = "application/json"
+    return r
+
+
+class TestEmbedStage:
+    """stage: embed -> OpenAI-compatible /embeddings -> ctx.embedding."""
+
+    def test_embed_sets_vector_and_embedding_cost(self, monkeypatch):
+        from llm_perf.providers.http_common import HttpClient
+
+        captured = {}
+
+        def fake_post(self, url, headers, body, stream=False, timeout=None):
+            captured["url"] = url
+            captured["body"] = body
+            captured["auth"] = headers.get("Authorization")
+            return _json_response(
+                {
+                    "data": [{"embedding": [0.1, 0.2, 0.3]}],
+                    "usage": {"prompt_tokens": 7},
+                }
+            )
+
+        monkeypatch.setattr(HttpClient, "post", fake_post)
+        monkeypatch.setenv("DUMMY_EMBED_KEY", "sekret")
+        stage = PipelineStage.model_validate(
+            {
+                "stage": "embed",
+                "embedding": {
+                    "provider": "openai_compat",
+                    "model": "mock-embed",
+                    "base_url": "http://127.0.0.1:9/v1",
+                    "api_key_env": "DUMMY_EMBED_KEY",
+                },
+            }
+        )
+        ctx = StageContext("hello world", {}, "embed_test", {}, pricing=PricingConfig(input_per_1k=0.001))
+        run_stage_embed(stage, ctx)
+
+        assert captured["url"] == "http://127.0.0.1:9/v1/embeddings"
+        assert captured["body"]["model"] == "mock-embed"
+        assert captured["body"]["input"] == "hello world"
+        assert captured["auth"] == "Bearer sekret"
+        assert ctx.embedding == [0.1, 0.2, 0.3]
+        assert ctx.usage["prompt_tokens"] == 7
+        assert ctx.stage_durations.get("embed", 0) >= 0
+        emb_cost = cost_stage_snapshot().get("embed_test", {}).get("embedding", 0)
+        # 7 prompt tokens @ $0.001/1k
+        assert emb_cost == round(7 / 1000 * 0.001, 6)
+
+    def test_embed_http_error_raises(self, monkeypatch):
+        from llm_perf.providers.http_common import HttpClient
+
+        monkeypatch.setattr(HttpClient, "post", lambda *a, **k: _json_response({"error": "x"}, status=500))
+        stage = PipelineStage.model_validate({"stage": "embed", "embedding": {"model": "m"}})
+        ctx = StageContext("q", {}, "embed_err", {})
+        with pytest.raises(RuntimeError, match="embed stage failed"):
+            run_stage_embed(stage, ctx)
+
+
+class TestRetrieveVector:
+    """retrieve http carries query_vector and normalizes matches-style hits."""
+
+    def test_query_vector_and_matches(self, monkeypatch):
+        import llm_perf.security as sec
+
+        captured = {}
+
+        class _FakeSession:
+            def post(self, url, json=None, headers=None, timeout=None, stream=None):
+                captured["body"] = json
+                captured["url"] = url
+                return _json_response(
+                    {
+                        "matches": [
+                            {"id": "d1", "score": 0.9, "metadata": {"text": "doc one"}},
+                            {"id": "d2", "score": 0.5, "metadata": {"content": "doc two"}},
+                        ]
+                    }
+                )
+
+        monkeypatch.setattr(sec, "shared_checked_session", _FakeSession)
+        ctx = StageContext("q?", {}, "retr_vec", {})
+        ctx.embedding = [0.1, 0.2]
+        stage = PipelineStage.model_validate(
+            {
+                "stage": "retrieve",
+                "vector_store": {"type": "http", "url": "http://x.test/search"},
+                "top_k": 2,
+            }
+        )
+        run_stage_retrieve(stage, ctx)
+
+        assert captured["body"]["query_vector"] == [0.1, 0.2]
+        assert captured["body"]["top_k"] == 2
+        assert [d["text"] for d in ctx.docs] == ["doc one", "doc two"]
+        assert ctx.docs[0]["score"] == 0.9

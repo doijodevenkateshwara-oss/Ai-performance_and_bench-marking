@@ -232,12 +232,15 @@ class AgentSuccessConfig(BaseModel):
 
 
 class PipelineStage(BaseModel):
-    """One stage of a declarative pipeline: retrieve/rerank/generate/agent."""
+    """One stage of a declarative pipeline: retrieve/embed/rerank/generate/agent."""
 
-    stage: Literal["retrieve", "rerank", "generate", "agent"]
+    stage: Literal["retrieve", "embed", "rerank", "generate", "agent"]
     # retrieve
     vector_store: dict[str, Any] | None = None
     top_k: int = 5
+    # embed — OpenAI-compatible /embeddings endpoint (OpenAI, Ollama,
+    # LM Studio, LiteLLM proxy, etc.)
+    embedding: dict[str, Any] | None = None
     # rerank
     method: Literal["llm", "cross_encoder"] | None = None
     # generate / agent llm ref

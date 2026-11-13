@@ -76,6 +76,15 @@ targets in `demo/` (see `demo/README.md` for how to reproduce):
   report: `pass` rules on a healthy target, `fail` on a metadata endpoint
   blocked by `security.url_allowlist` (exit code 1), and `not_evaluated`
   for a TTFT rule on a unary target.
+- **`demo-rag-dryrun`** — focused RAG pipeline (retrieve→rerank→generate)
+  exercising IR metrics (`relevant_ids` → recall@k/MRR/NDCG), pointwise
+  rerank dominance in the per-request composition (~96% median share),
+  judge `sample_rate` realized as `quality_judge_rate`, and
+  `cost_breakdown` (reranking > generation > judge).
+- **`demo-rag-embed-dryrun`** — `embed`→`retrieve(http)`→`generate`
+  pipeline: query embeddings via mock `/v1/embeddings`, `query_vector`
+  sent to a vector-store-style `/retrieve` endpoint, `embed` stage
+  timing in the composition, and the `embedding` cost category populated.
 
 ## Key metrics
 

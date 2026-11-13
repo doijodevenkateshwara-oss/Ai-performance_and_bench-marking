@@ -1,0 +1,87 @@
+# Dry-run RAG pipeline exercising the embed stage + HTTP vector store.
+# embed -> retrieve(type: http, mock /retrieve) -> generate.
+# No credentials needed — mock provides /v1/embeddings and /retrieve.
+observability:
+  otel:
+    enabled: false
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+      context: expected_context
+    sample: { strategy: first }
+
+targets:
+  - name: rag_embed_pipeline
+    layer: pipeline
+    dataset: qa_pairs
+    pipeline:
+      - stage: embed
+        embedding:
+          provider: openai_compat
+          model: mock-embed
+          base_url: http://127.0.0.1:8901/v1
+          params: {}
+      - stage: retrieve
+        vector_store:
+          type: http
+          url: http://127.0.0.1:8901/retrieve
+          top_k: 3
+        top_k: 3
+      - stage: generate
+        template: ../prompts/rag_answer.j2
+        llm:
+          provider: openai
+          model: mock-model
+          base_url: http://127.0.0.1:8901/v1
+          params: { max_tokens: 128, temperature: 0.1 }
+    vars:
+      topic: [kubernetes, observability, benchmarking]
+
+scenarios:
+  - name: rag_embed_dryrun
+    target: rag_embed_pipeline
+    weight: 100
+    think_time: [0.2, 0.8]
+    quality:
+      sample_rate: 0.5
+      heuristics:
+        non_empty: true
+        min_chars: 10
+      rag: {}
+      judge:
+        provider: openai
+        model: mock-model
+        base_url: http://127.0.0.1:8901/v1
+        rubric: "rubric: score 1-5 on faithfulness to the context and correctness"
+        scale: [1, 5]
+
+load:
+  users: 3
+  spawn_rate: 3
+  duration: 20s
+  ramp_up: 5s
+  ramp_down: 5s
+
+thresholds:
+  on_fail: warn
+  on_not_evaluated: warn
+  scenarios:
+    rag_embed_dryrun:
+      p95_ms: 30000
+      max_error_rate: 0.2
+      min_quality_score: 0.3
+      stages:
+        embed: { p95_ms: 5000 }
+        retrieve: { p95_ms: 5000 }
+        generate: { p95_ms: 20000 }
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/demo-evidence/rag-embed-dryrun
+  collect_resources: true
+  pricing: { input_per_1k: 0.00015, output_per_1k: 0.0006 }

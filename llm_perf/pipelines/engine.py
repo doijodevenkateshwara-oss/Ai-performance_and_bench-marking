@@ -38,6 +38,7 @@ class StageContext:
         self.stage_metrics: dict[str, float] = {}
         self.stage_durations: dict[str, float] = {}  # per-request stage ms for composition
         self.ir_metrics: dict = {}  # recall@k/precision@k/mrr/ndcg when judgments exist
+        self.embedding: list[float] | None = None  # populated by an embed stage
         self.agent_eval: dict = {}  # populated by the agent stage
 
 
@@ -110,7 +111,7 @@ def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
     top_k = stage.top_k
     with stage_span("retrieve", ctx.scenario, store=vtype):
         start = time.monotonic()
-        docs = _retrieve(vtype, vs, ctx.question, top_k)
+        docs = _retrieve(vtype, vs, ctx.question, top_k, embedding=ctx.embedding)
         dur = time.monotonic() - start
         _rec_stage(ctx, "retrieve", dur, store=vtype)
         ctx.docs = docs
@@ -118,23 +119,32 @@ def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
         ctx.ir_metrics = _ir_metrics(ctx, docs, top_k)
 
 
-def _retrieve(vtype: str, cfg: dict, query: str, top_k: int) -> list[dict]:
+def _retrieve(
+    vtype: str, cfg: dict, query: str, top_k: int, embedding: list[float] | None = None
+) -> list[dict]:
     """Dispatch to the configured vector-store backend."""
     if vtype == "http":
-        return _retrieve_http(cfg, query, top_k)
+        return _retrieve_http(cfg, query, top_k, embedding=embedding)
     if vtype == "json":
         return _retrieve_json(cfg, query, top_k)
     if vtype == "chroma":
-        return _retrieve_chroma(cfg, query, top_k)
+        return _retrieve_chroma(cfg, query, top_k, embedding=embedding)
     raise ValueError(f"unsupported vector_store type: {vtype}")
 
 
-def _retrieve_http(cfg: dict, query: str, top_k: int) -> list[dict]:
-    """POST the query to an HTTP vector store; normalize doc list."""
+def _retrieve_http(cfg: dict, query: str, top_k: int, embedding: list[float] | None = None) -> list[dict]:
+    """POST the query to an HTTP vector store; normalize doc list.
+
+    When an embed stage ran earlier, the body also carries ``query_vector``
+    so vector-native stores (Pinecone-style, pgvector services, ES kNN
+    proxies) can use it; text-only stores simply ignore the extra field.
+    """
     from ..security import read_response_text, shared_checked_session
 
     url = cfg["url"]
     body = {"query": query, "top_k": top_k, **cfg.get("params", {})}
+    if embedding:
+        body["query_vector"] = embedding
     headers = dict(cfg.get("headers", {}))
     key_env = cfg.get("api_key_env")
     if key_env and os.environ.get(key_env):
@@ -149,18 +159,27 @@ def _retrieve_http(cfg: dict, query: str, top_k: int) -> list[dict]:
     )
     resp.raise_for_status()
     data = json.loads(read_response_text(resp))
-    # normalize: list of docs or {results|documents|chunks: [...]}
+    # normalize: list of docs or {results|documents|chunks|matches: [...]}
+    # "matches" covers Pinecone-style responses ({id, score, metadata:{...}})
     items = (
         data
         if isinstance(data, list)
-        else (data.get("results") or data.get("documents") or data.get("chunks") or [])
+        else (data.get("results") or data.get("documents") or data.get("chunks") or data.get("matches") or [])
     )
     docs = []
     for it in items[:top_k]:
         if isinstance(it, str):
             docs.append({"text": it})
         elif isinstance(it, dict):
-            text = it.get("text") or it.get("content") or it.get("page_content") or str(it)
+            meta = it.get("metadata") if isinstance(it.get("metadata"), dict) else {}
+            text = (
+                it.get("text")
+                or it.get("content")
+                or it.get("page_content")
+                or meta.get("text")
+                or meta.get("content")
+                or str(it)
+            )
             docs.append({"text": text, "score": it.get("score"), "raw": it})
     return docs
 
@@ -307,7 +326,7 @@ def _log2(x: float) -> float:
     return math.log2(x)
 
 
-def _retrieve_chroma(cfg: dict, query: str, top_k: int) -> list[dict]:
+def _retrieve_chroma(cfg: dict, query: str, top_k: int, embedding: list[float] | None = None) -> list[dict]:
     """Query a local Chroma collection for top-k docs."""
     try:
         import chromadb
@@ -315,7 +334,11 @@ def _retrieve_chroma(cfg: dict, query: str, top_k: int) -> list[dict]:
         raise RuntimeError("chroma vector store requires `pip install chromadb` " "(or use type: json/http)")
     client = chromadb.PersistentClient(path=cfg.get("path", "./chroma_db"))
     col = client.get_collection(cfg.get("collection", "llm_perf"))
-    res = col.query(query_texts=[query], n_results=top_k)
+    # real vector search when an embed stage produced a query embedding
+    if embedding:
+        res = col.query(query_vectors=[embedding], n_results=top_k)
+    else:
+        res = col.query(query_texts=[query], n_results=top_k)
     docs = []
     # `or [[]]` guards both a missing key and an empty documents list
     for i, doc in enumerate((res.get("documents") or [[]])[0]):
@@ -716,8 +739,50 @@ def _finalize_agent_eval(
     ctx.stage_metrics["agent_cost_usd"] = cost_usd
 
 
+def run_stage_embed(stage: PipelineStage, ctx: StageContext) -> None:
+    """Embed ctx.question via an OpenAI-compatible /embeddings endpoint.
+
+    Config lives in ``stage.embedding`` (falls back to ``stage.llm``):
+    ``provider`` (openai_compat, default), ``model``, ``base_url``,
+    ``api_key_env``, ``endpoint`` (full URL override), ``params``,
+    ``timeout_s``. Works with OpenAI, Ollama (``/v1``), LM Studio,
+    LiteLLM proxy and any OpenAI-compatible embeddings server. The vector
+    lands on ``ctx.embedding`` for downstream retrieve stages; embed token
+    usage is billed under the ``embedding`` cost category.
+    """
+    from ..providers.http_common import HttpClient
+
+    cfg = stage.embedding or stage.llm or {}
+    base = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+    url = cfg.get("endpoint") or f"{base}/embeddings"
+    model = cfg.get("model", "text-embedding-3-small")
+    provider = cfg.get("provider", "openai_compat")
+    timeout = cfg.get("timeout_s", 60.0)
+    headers = {"Content-Type": "application/json"}
+    key = _resolve_key(cfg)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    body = {"model": model, "input": ctx.question, **cfg.get("params", {})}
+    with stage_span("embed", ctx.scenario, provider=provider, model=model):
+        start = time.monotonic()
+        resp = HttpClient(timeout_s=timeout).post(url, headers, body, timeout=timeout)
+        dur = time.monotonic() - start
+        _rec_stage(ctx, "embed", dur, provider=provider)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"embed stage failed: HTTP {resp.status_code} {resp.text[:200]}")
+        data = resp.json()
+        try:
+            ctx.embedding = [float(x) for x in data["data"][0]["embedding"]]
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            raise RuntimeError(f"embed stage: unexpected response shape: {e}") from e
+        pt = int((data.get("usage") or {}).get("prompt_tokens") or 0)
+        ctx.usage["prompt_tokens"] += pt
+        record_cost(ctx.scenario, estimate_cost(pt, 0, ctx.pricing), stage="embedding")
+
+
 _STAGE_FNS = {
     "retrieve": run_stage_retrieve,
+    "embed": run_stage_embed,
     "rerank": run_stage_rerank,
     "generate": run_stage_generate,
     "agent": run_stage_agent,
@@ -748,7 +813,12 @@ def _resolve_key(llm_cfg: dict) -> str | None:
     if env_name:
         return os.environ.get(env_name)
     # common defaults per provider
-    defaults = {"openai": "OPENAI_API_KEY", "azure": "AZURE_OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+    defaults = {
+        "openai": "OPENAI_API_KEY",
+        "openai_compat": "OPENAI_API_KEY",
+        "azure": "AZURE_OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }
     provider = llm_cfg.get("provider", "openai")
     env = defaults.get(provider)
     return os.environ.get(env) if env else None

@@ -1,0 +1,484 @@
+{
+  "generated_at": "2026-11-13T13:25:19+0530",
+  "duration_s": 20.14684510231018,
+  "totals": {
+    "requests": 112,
+    "failures": 0,
+    "error_rate": 0.0,
+    "peak_users": 3
+  },
+  "scenarios": [
+    {
+      "scenario": "rag_embed_dryrun",
+      "methods": {
+        "RECALL_AT_K": {
+          "requests": 67,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 716.4179104477612,
+          "min_ms": 0.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "PRECISION_AT_K": {
+          "requests": 67,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 238.80597014925388,
+          "min_ms": 0.0,
+          "max_ms": 333.3333333333333,
+          "p50": 330,
+          "p90": 330,
+          "p95": 330,
+          "p99": 330
+        },
+        "MRR": {
+          "requests": 67,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 716.4179104477612,
+          "min_ms": 0.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "NDCG": {
+          "requests": 67,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 716.4179104477612,
+          "min_ms": 0.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "TOKENS": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 38.50892857142857,
+          "min_ms": 35,
+          "max_ms": 41,
+          "p50": 41,
+          "p90": 41,
+          "p95": 41,
+          "p99": 41
+        },
+        "PROMPT_TOKENS": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 30.508928571428573,
+          "min_ms": 27,
+          "max_ms": 33,
+          "p50": 33,
+          "p90": 33,
+          "p95": 33,
+          "p99": 33
+        },
+        "COMPLETION_TOKENS": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 8.0,
+          "min_ms": 8,
+          "max_ms": 8,
+          "p50": 8,
+          "p90": 8,
+          "p95": 8,
+          "p99": 8
+        },
+        "TOKENS_PER_SEC": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 807.9033518933327,
+          "min_ms": 88.80760723313209,
+          "max_ms": 1277.25869630957,
+          "p50": 1300,
+          "p90": 1300,
+          "p95": 1300,
+          "p99": 1300
+        },
+        "INPUT_TOKENS_PER_SEC": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 3084.071498412105,
+          "min_ms": 299.7256744118208,
+          "max_ms": 5187.743656916627,
+          "p50": 5200,
+          "p90": 5200,
+          "p95": 5200,
+          "p99": 5200
+        },
+        "POST": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 16.594405901776504,
+          "min_ms": 6.2634139999317995,
+          "max_ms": 90.08237299985922,
+          "p50": 90,
+          "p90": 90,
+          "p95": 90,
+          "p99": 90
+        },
+        "QUALITY_SCORE": {
+          "requests": 112,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 912.9464285714286,
+          "min_ms": 850.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "CONTEXT_RECALL": {
+          "requests": 67,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 716.4179104477612,
+          "min_ms": 0.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        }
+      },
+      "requests": 112,
+      "failures": 0,
+      "error_rate": 0.0,
+      "avg_ms": 16.594405901776504,
+      "p50_ms": 90,
+      "p90_ms": 90,
+      "p95_ms": 90,
+      "p99_ms": 90,
+      "rps": 5.559183059741561,
+      "cost_usd": 0.0015961500000000002,
+      "ttft_p95_ms": null,
+      "ttft_avg_ms": null,
+      "total_tokens": 112,
+      "tokens_per_sec_avg": 807.9033518933326,
+      "input_tokens_per_sec_avg": 3084.0714984121064,
+      "tpot_avg_ms": null,
+      "tpot_p95_ms": null,
+      "gen_duration_avg_ms": null,
+      "gen_duration_p95_ms": null,
+      "itl_avg_avg_ms": null,
+      "itl_avg_p95_ms": null,
+      "itl_p95_avg_ms": null,
+      "itl_p95_p95_ms": null,
+      "queue_wait_avg_ms": null,
+      "queue_wait_p95_ms": null,
+      "retries_total": 0.0,
+      "retries_avg": null,
+      "timeouts": 0,
+      "cost_per_success_usd": 1.4251339285714288e-05,
+      "quality_score_avg": 0.9129,
+      "quality_pass_rate": 1.0,
+      "context_recall_avg": 0.7164,
+      "recall_at_k": 0.7164,
+      "recall_at_k_avg": 0.7164,
+      "precision_at_k": 0.2388,
+      "precision_at_k_avg": 0.2388,
+      "mrr": 0.7164,
+      "mrr_avg": 0.7164,
+      "ndcg": 0.7164,
+      "ndcg_avg": 0.7164,
+      "quality_evaluated": 112,
+      "quality_eligible": 112,
+      "quality_judged": 65,
+      "quality_sample_rate": 1.0,
+      "quality_judge_rate": 0.5804,
+      "quality_ci_low": 0.8992,
+      "quality_ci_high": 0.9266,
+      "quality": {
+        "evaluated": 112,
+        "eligible": 112,
+        "judged": 65,
+        "judge_rate": 0.5804,
+        "requests": 112,
+        "sample_rate": 1.0,
+        "score_avg": 0.9129,
+        "score_ci95": 0.0137,
+        "pass_rate": 1.0,
+        "pass_rate_ci95": 0.0
+      }
+    }
+  ],
+  "thresholds": {
+    "all_passed": true,
+    "failed": [],
+    "not_evaluated": [],
+    "rules": [
+      {
+        "rule": "scenario:rag_embed_dryrun.p95_ms",
+        "metric": "p95_latency_ms",
+        "comparator": "<=",
+        "threshold": 30000.0,
+        "actual": 41,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_embed_dryrun.max_error_rate",
+        "metric": "error_rate",
+        "comparator": "<=",
+        "threshold": 0.2,
+        "actual": 0.0,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_embed_dryrun.min_quality_score",
+        "metric": "quality_score",
+        "comparator": ">=",
+        "threshold": 0.3,
+        "actual": 0.9129464285714286,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_embed_dryrun.stage.embed.p95_ms",
+        "metric": "stage.embed.p95_ms",
+        "comparator": "<=",
+        "threshold": 5000.0,
+        "actual": 43.07935300016652,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_embed_dryrun.stage.retrieve.p95_ms",
+        "metric": "stage.retrieve.p95_ms",
+        "comparator": "<=",
+        "threshold": 5000.0,
+        "actual": 9.603002999938326,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_embed_dryrun.stage.generate.p95_ms",
+        "metric": "stage.generate.p95_ms",
+        "comparator": "<=",
+        "threshold": 20000.0,
+        "actual": 5.107076000058441,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      }
+    ]
+  },
+  "manifest": {
+    "run_id": "c85e916c-7008-493c-8223-de06741be114",
+    "generated_at": "2026-11-13T13:25:19+0530",
+    "framework": {
+      "name": "llm-perf",
+      "version": "0.1.0",
+      "locust": "2.47.0",
+      "python": "3.12.3"
+    },
+    "git": {
+      "commit": "ebb0e15ffdba5b0a15cb33c027526f954bc7f450",
+      "dirty": true,
+      "root": "/home/ubuntu/Desktop/performance-testing-llm-ai"
+    },
+    "config": {
+      "path": "/home/ubuntu/Desktop/performance-testing-llm-ai/demo/.llm_perf_effective.yaml",
+      "sha256": "ae4af1da99f6c1cce92b2358884fce63cb07484cc2f9c6e5253144a3cd832056"
+    },
+    "datasets": {
+      "qa_pairs": {
+        "source": "/home/ubuntu/Desktop/performance-testing-llm-ai/datasets/qa_pairs.jsonl",
+        "sha256": "63acbc4b486fbab22c90e98ec8ffd2b7af4620122f9eb340e509dd978451998a",
+        "bytes": 1278
+      }
+    },
+    "targets": [
+      {
+        "name": "rag_embed_pipeline",
+        "layer": "pipeline",
+        "dataset": "qa_pairs",
+        "llm_refs": [
+          {
+            "stage": "generate",
+            "provider": "openai",
+            "model": "mock-model",
+            "host": "127.0.0.1:8901"
+          }
+        ]
+      }
+    ],
+    "load": {
+      "profile": null,
+      "users": 3,
+      "spawn_rate": 3.0,
+      "duration": "20s",
+      "run_time": null
+    },
+    "load_generator": {
+      "python": "3.12.3",
+      "python_impl": "CPython",
+      "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+      "cpu_count": 4,
+      "hostname": "ip-172-31-43-166",
+      "mem_total_gb": 15.33
+    },
+    "pricing": {
+      "input_per_1k": 0.00015,
+      "output_per_1k": 0.0006,
+      "currency": "USD",
+      "captured_at": "2026-11-13T13:25:19+0530"
+    }
+  },
+  "run_id": "c85e916c-7008-493c-8223-de06741be114",
+  "load": {
+    "profile": null,
+    "users": 3,
+    "spawn_rate": 3.0,
+    "duration": "20s",
+    "run_time": null
+  },
+  "phases": [],
+  "stages": [
+    {
+      "scenario": "rag_embed_dryrun",
+      "stage": "embed",
+      "count": 112,
+      "avg_ms": 8.435138758932633,
+      "p50_ms": 2.436279999983526,
+      "p95_ms": 43.07935300016652,
+      "max_ms": 45.469820000107575
+    },
+    {
+      "scenario": "rag_embed_dryrun",
+      "stage": "retrieve",
+      "count": 112,
+      "avg_ms": 3.8412530178654998,
+      "p50_ms": 2.1866710001177125,
+      "p95_ms": 9.603002999938326,
+      "max_ms": 42.98640999991221
+    },
+    {
+      "scenario": "rag_embed_dryrun",
+      "stage": "generate",
+      "count": 112,
+      "avg_ms": 2.6048104374954812,
+      "p50_ms": 2.1922209998592734,
+      "p95_ms": 5.107076000058441,
+      "max_ms": 12.655042000005778
+    }
+  ],
+  "composition": {
+    "rag_embed_dryrun": {
+      "requests": 112,
+      "segments": {
+        "embed": {
+          "p50_ms": 2.436279999983526,
+          "p95_ms": 43.07935300016652,
+          "median_share_pct": 28.24
+        },
+        "generate": {
+          "p50_ms": 2.1922209998592734,
+          "p95_ms": 5.107076000058441,
+          "median_share_pct": 25.15
+        },
+        "retrieve": {
+          "p50_ms": 2.1866710001177125,
+          "p95_ms": 9.603002999938326,
+          "median_share_pct": 23.82
+        }
+      },
+      "unattributed": {
+        "p50_ms": 1.670844000273064,
+        "p95_ms": 2.1553009999024653,
+        "median_share_pct": 19.57
+      }
+    }
+  },
+  "cost_breakdown": {
+    "rag_embed_dryrun": {
+      "generation": 0.000941,
+      "embedding": 0.000109,
+      "judge": 0.000546
+    }
+  },
+  "resources": {
+    "loadgen": {
+      "samples": 5,
+      "interval_s": 5.0,
+      "cpu_percent_avg": 38.9,
+      "cpu_percent_max": 54.3,
+      "mem_percent_avg": 30.4,
+      "mem_percent_max": 30.6,
+      "mem_used_mb_max": 5044.2,
+      "scheduler_lag": {
+        "samples": 200,
+        "interval_ms": 50.0,
+        "avg_ms": 0.73,
+        "p50_ms": 0.2,
+        "p95_ms": 1.09,
+        "max_ms": 66.51
+      }
+    }
+  },
+  "analysis": {
+    "executive_summary": {
+      "verdict": "PASS",
+      "requests": 112,
+      "failures": 0,
+      "error_rate": 0.0,
+      "duration_s": 20.14684510231018,
+      "scenarios": 1,
+      "headline_scenario": "rag_embed_dryrun",
+      "headline": {
+        "p95_ms": 90,
+        "ttft_p95_ms": null,
+        "tokens_per_sec_avg": 807.9033518933326,
+        "quality_score_avg": 0.9129
+      },
+      "cost_usd": 0.001596,
+      "slo": {
+        "pass": 6,
+        "fail": 0,
+        "not_evaluated": 0,
+        "skip": 0,
+        "all_passed": true
+      },
+      "findings": [
+        "Primary scenario 'rag_embed_dryrun' served 112 requests at p95=90ms.",
+        "Output throughput ~807.9 tok/s (avg).",
+        "Estimated cost $0.0016.",
+        "6 SLO rule(s) passed."
+      ]
+    },
+    "slo": {
+      "pass": 6,
+      "fail": 0,
+      "not_evaluated": 0,
+      "skip": 0,
+      "all_passed": true
+    },
+    "bottlenecks": []
+  },
+  "comparison": null,
+  "regression": {
+    "checked": false,
+    "regressions": []
+  }
+}

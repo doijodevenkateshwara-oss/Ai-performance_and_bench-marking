@@ -85,7 +85,7 @@ and observability assets. This page maps every file/directory to its role.
 
 | Path | Purpose |
 |---|---|
-| `pipelines/engine.py` | Executes `retrieve`/`rerank`/`generate`/`agent` stages, builds `StageContext`, records per-stage spans/metrics, implements the OpenAI-compatible tool-calling agent loop with loop detection and task-success evaluation |
+| `pipelines/engine.py` | Executes `retrieve`/`embed`/`rerank`/`generate`/`agent` stages (embed = OpenAI-compatible query embeddings feeding `ctx.embedding` → `query_vector` for http/chroma stores), builds `StageContext`, records per-stage spans/metrics, implements the OpenAI-compatible tool-calling agent loop with loop detection and task-success evaluation |
 | `pipelines/__init__.py` | Re-exports `StageContext`, `run_pipeline` |
 
 ### `llm_perf/quality/` — quality scoring

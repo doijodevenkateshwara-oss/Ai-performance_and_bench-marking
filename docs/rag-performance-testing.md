@@ -15,7 +15,7 @@ metrics for every request:
 
 | Signal | Where it appears | What it tells you |
 |---|---|---|
-| Stage latency (`retrieve`, `rerank`, `generate`, `agent_step`, `agent_tool`) | `stages[]` in JSON, stage table in HTML, `stage.<name>.p95_ms` threshold rules | Which stage is the bottleneck — embedding/search vs LLM decode vs tool calls |
+| Stage latency (`embed`, `retrieve`, `rerank`, `generate`, `agent_step`, `agent_tool`) | `stages[]` in JSON, stage table in HTML, `stage.<name>.p95_ms` threshold rules | Which stage is the bottleneck — query embedding/search vs LLM decode vs tool calls |
 | End-to-end latency | `p50/p90/p95/p99` per scenario | User-visible response time |
 | `CONTEXT_RECALL` | scenario stats + `min_context_recall` threshold | Fraction of `expected_context` found in retrieved docs — **retrieval quality** |
 | `RECALL_AT_K` / `PRECISION_AT_K` / `MRR` / `NDCG` | scenario stats (`recall_at_k`, `precision_at_k`, `mrr`, `ndcg`) + `min_recall_at_k`/`min_precision_at_k`/`min_mrr`/`min_ndcg` threshold rules | Standard IR metrics over the retrieved ranking. Require relevance judgments on the row: `relevant_ids` (doc ids) or `relevant_texts` (passages); falls back to `expected_context` part-coverage. No judgments → metrics absent (not evaluated), never a misleading 0 |
@@ -77,7 +77,7 @@ Three `vector_store.type` options:
 | Type | Config | Notes |
 |---|---|---|
 | `json` | `{type: json, path: docs.jsonl}` | Local JSON/JSONL docs; **keyword-overlap scoring, no embeddings** — fine for framework testing, not representative of a real vector DB |
-| `http` | `{type: http, url: "...", api_key_env: X, headers: {...}, params: {...}}` | POSTs `{query, top_k}`; normalizes `results`/`documents`/`chunks`/list responses. Point at your real retrieval service (Pinecone/Qdrant/Weaviate proxy, Elasticsearch, etc.) |
+| `http` | `{type: http, url: "...", api_key_env: X, headers: {...}, params: {...}}` | POSTs `{query, top_k}` — plus `query_vector` when an `embed` stage ran first; normalizes `results`/`documents`/`chunks`/`matches`/list responses (incl. Pinecone-style `{id, score, metadata}`). Point at your real retrieval service |
 | `chroma` | `{type: chroma, path: ./chroma_db, collection: llm_perf}` | Local Chroma vector store — **only install chromadb if you actually benchmark a Chroma-backed setup** (see note below) |
 
 For the `json` type each doc needs a `text` (or `content`) field; `score` and
@@ -102,7 +102,50 @@ extra metadata are passed through. For `http`, docs accept `text`, `content`,
 >   `pip install chromadb`) unless that's your store — it's a lazy import,
 >   not a package extra, precisely because most runs don't need it.
 
-## 2. Configure the pipeline
+#### Real vector stores: Pinecone, Weaviate, Elasticsearch, pgvector
+
+Native vector search needs a **query embedding**, not raw text — the
+framework covers this with a dedicated `embed` stage (any
+OpenAI-compatible `/embeddings` endpoint: OpenAI, Ollama, LM Studio,
+LiteLLM proxy, etc.):
+
+```yaml
+pipeline:
+  - stage: embed                       # question -> vector
+    embedding:
+      provider: openai_compat
+      model: text-embedding-3-small
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+  - stage: retrieve
+    top_k: 5
+    vector_store:
+      type: http                       # your store's query endpoint/proxy
+      url: https://your-store/search
+      api_key_env: STORE_API_KEY
+  - stage: generate
+    ...
+```
+
+The `embed` stage stores the vector on the request context; `retrieve`
+then sends **both** `query` (text) and `query_vector` (float list) so the
+store can use whichever it supports. Embed token usage is priced under
+the `embedding` cost category in `cost_breakdown`, and embed latency
+appears as its own `embed` stage/segment in the composition.
+
+Per-store notes:
+
+| Store | What you need |
+|---|---|
+| Pinecone | A thin proxy/service that accepts `{query_vector, top_k}` and returns `matches`-style hits (or use their inference endpoint for text→vector); native query API is vector-only |
+| Weaviate | Proxy translating to GraphQL/REST, or BM25/hybrid text search via `query` |
+| Elasticsearch | `_search` endpoint — `match`/BM25 on `query`, or kNN proxy that embeds `query_vector` |
+| pgvector | Any HTTP service in front of Postgres (there is no native HTTP API); pass `query_vector` through |
+| Chroma | `type: chroma` uses `query_vectors` automatically when an embed stage ran — true vector search, no proxy needed |
+
+If your store already sits behind a company `/search` or `/retrieve`
+endpoint returning normalized docs, you need **no embed stage** — plain
+`type: http` retrieve is enough (YAML only, no code changes).
 
 Full annotated config (`configs/rag_example.yaml`):
 
@@ -128,6 +171,9 @@ targets:
     layer: pipeline
     dataset: qa_pairs                    # rows drive prompts + expected fields
     pipeline:
+      # - stage: embed                     # OPTIONAL — real vector stores only
+      #   embedding: { provider: openai_compat, model: text-embedding-3-small,
+      #                base_url: https://api.openai.com/v1, api_key_env: OPENAI_API_KEY }
       - stage: retrieve
         vector_store:
           type: json                     # or http / chroma
@@ -198,6 +244,12 @@ report:
 
 ### Stage details
 
+- **`embed`** — embeds `question` via an OpenAI-compatible `/embeddings`
+  endpoint (`embedding:` block: `provider`, `model`, `base_url`,
+  `endpoint` override, `api_key_env`, `params`, `timeout_s`). The vector
+  lands on `ctx.embedding` for downstream `retrieve` stages. Emits an
+  `embed` stage-timing metric; embed tokens are costed under the
+  `embedding` category. Optional — skip it for text-search stores.
 - **`retrieve`** — `vector_store` + `top_k`. Retrieved docs land in
   `ctx.context_texts` and `ctx.docs` for downstream stages. Emits a
   `retrieve` stage-timing metric per request.
@@ -388,6 +440,8 @@ runs against different dataset versions are detectable in `comparison`.
 against `demo/mock_server.py` (OpenAI-compatible mock on `:8901`) with
 `relevant_ids` judgments, sampled judge, and IR threshold rules — see
 `demo/README.md` for the full reproduce flow.
+`demo/rag_embed_dryrun.yaml` additionally exercises the `embed` stage +
+HTTP vector store (`query_vector` → mock `/retrieve`) with no credentials.
 
 ## 4. View results
 

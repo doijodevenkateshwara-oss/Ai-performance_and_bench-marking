@@ -9,11 +9,12 @@ metric family **without API keys or external services**. Run artifacts land in
 
 | File | Purpose |
 |---|---|
-| `mock_server.py` | OpenAI-compatible mock: unary JSON, SSE streaming, `tool_calls`, `/search` for agent HTTP tools, `/health` |
+| `mock_server.py` | OpenAI-compatible mock: unary JSON, SSE streaming, `tool_calls`, `/v1/embeddings`, `/retrieve` (vector-store style), `/search` for agent HTTP tools, `/health` |
 | `dummy_tools.py` | Python function tools for the agent stage (`echo`, `word_count`) |
 | `dummy_app.py` | In-process app object for the `app_object` layer (`DummyApp.invoke`) |
 | `all_layers.yaml` | One config hitting all four layers + streaming + quality + stages |
 | `rag_dryrun.yaml` | Focused RAG dry run: retrieve → **rerank** → generate, IR metrics via `relevant_ids`, sampled judge, cost breakdown |
+| `rag_embed_dryrun.yaml` | Embed-stage dry run: `embed` (mock `/v1/embeddings`) → `retrieve` (http mock `/retrieve` with `query_vector`) → generate |
 | `thresholds_security.yaml` | Three-state thresholds (pass/fail/not_evaluated) + SSRF allowlist demo |
 
 ## Run it
@@ -39,13 +40,14 @@ LLM_PERF_CONFIG=demo/.llm_perf_effective_thresholds_security.yaml \
   locust -f locustfile.py --headless -u 4 -r 4 -t 30s   # exits 1: FAIL rule
 
 # focused RAG dry run (retrieve + rerank + generate, IR metrics, judge sampling)
+# or via the CLI — locust is imported before llm_perf so the gevent patch
+# ordering is safe: `python -m llm_perf.cli run -c demo/rag_dryrun.yaml --headless`
 LLM_PERF_CONFIG=demo/rag_dryrun.yaml \
   locust -f locustfile.py --headless -u 3 -r 3 -t 35s
-```
 
-> `llm-perf run -c demo/all_layers.yaml --headless` hits a known
-> gevent/urllib3 monkey-patch ordering issue when llm_perf modules are
-> imported before locust; running `locust` directly avoids it.
+# embed-stage dry run (query embedding -> http vector store -> generate)
+python -m llm_perf.cli run -c demo/rag_embed_dryrun.yaml --headless
+```
 
 ## What the runs demonstrate
 
@@ -73,6 +75,16 @@ fixes on a real RAG pipeline:
 - Judge `sample_rate: 0.5` → `quality_judge_rate ≈ 0.53`, `quality_evaluated`
   = all requests (heuristics always run), 95% CI on the mean score
 
+**`rag_embed_dryrun.yaml`** — ~112 requests, exit 0. Exercises the `embed`
+stage + HTTP vector store path used for real vector DBs:
+
+- `embed` (mock `/v1/embeddings`) → `retrieve` (`type: http` → mock
+  `/retrieve`, receives `query_vector`) → `generate`
+- Composition shows all three stages ~24–28% median share each; the
+  `embed` stage-timing metric and `cost_breakdown.embedding` category
+  are populated (first real evidence of embedding spend attribution)
+- IR metrics still computed against `relevant_ids` rows
+
 **`thresholds_security.yaml`** — exit 1, all three rule states in one report:
 
 - `pass` — `ok_load.p95_ms`, `ok_load.max_error_rate`
@@ -88,7 +100,7 @@ fixes on a real RAG pipeline:
 | Streaming | SSE chunks, TTFT, TPOT, ITL, token usage |
 | Metrics | latency percentiles, token accounting, stage metrics, agent stats |
 | Workloads | smoke profile, ramp_up/steady/ramp_down phases, per-scenario weights |
-| Pipelines | RAG retrieve→rerank→generate, agent tool loop, per-stage + composition metrics |
+| Pipelines | RAG retrieve→rerank→generate, embed→retrieve(http)→generate, agent tool loop, per-stage + composition metrics |
 | Agents | http + function tools, iteration/loop caps |
 | Security | URL allowlist blocking (SSRF), untrusted-config audit warnings |
 | Regression/thresholds | pass/fail/not_evaluated states, nonzero CI exit |
