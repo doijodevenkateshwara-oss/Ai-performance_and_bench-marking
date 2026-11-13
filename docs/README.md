@@ -8,6 +8,7 @@ This directory contains the framework documentation:
 | [architecture.md](architecture.md) | System architecture, request lifecycle, layers, observability, reporting |
 | [how-to-run.md](how-to-run.md) | Install, configuration, CLI usage, profiles, Docker stack, CI |
 | [test-results.md](test-results.md) | Report formats, sample results, metric definitions, thresholds, baselines, interpretation |
+| [llm-api-performance-testing.md](llm-api-performance-testing.md) | End-to-end direct-LLM benchmarking: providers, streaming metrics, config, running, results, validation, CI flow |
 | [rag-performance-testing.md](rag-performance-testing.md) | End-to-end RAG benchmarking: pipeline config, datasets, running, results, validation, CI flow |
 | [methodology.md](methodology.md) | Timing accuracy, gevent concurrency model, when streaming metrics are unreliable |
 | [demo.md](demo.md) | Live demo: start the Docker observability stack, dashboard URLs, run a mock test |
