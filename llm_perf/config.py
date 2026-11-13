@@ -127,9 +127,22 @@ class AwsConfig(BaseModel):
 
 
 class GeminiConfig(BaseModel):
-    """Google Gemini specifics: API version for the Generative Language API."""
+    """Google Gemini/Vertex AI specifics.
+
+    vertex=False -> AI Studio (generativelanguage.googleapis.com).
+    vertex=True  -> Vertex AI. `project`+`location` select the full
+    publishers/google path; omit them for express mode
+    (/v1/publishers/google/models/{model}:...). `auth` picks the
+    credential style: "api_key" (x-goog-api-key — express mode or AI
+    Studio) or "bearer" (Authorization: Bearer — OAuth2 access token
+    from `api_key_env`, e.g. `gcloud auth print-access-token`).
+    """
 
     api_version: str = "v1beta"
+    vertex: bool = False
+    project: str | None = None
+    location: str | None = None
+    auth: Literal["api_key", "bearer"] = "api_key"
 
 
 class GrpcConfig(BaseModel):

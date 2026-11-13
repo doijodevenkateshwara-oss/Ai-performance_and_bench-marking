@@ -219,6 +219,48 @@ def test_gemini_parse_stream():
     assert r.ttft_s is not None
 
 
+def test_gemini_vertex_url_and_auth():
+    """Vertex mode builds publishers/google path; bearer auth uses Authorization."""
+    a = GeminiAdapter()
+    extra = {
+        "gemini": {
+            "vertex": True,
+            "project": "my-proj",
+            "location": "us-central1",
+            "auth": "bearer",
+        }
+    }
+    spec = RequestSpec(
+        provider="gemini",
+        prompt="hi",
+        params={"model": "gemini-2.0-flash"},
+        api_key="oauth-token",
+        extra=extra,
+    )
+    url, headers, _ = a.build_request(spec)
+    assert url.startswith("https://us-central1-aiplatform.googleapis.com")
+    assert "/v1/projects/my-proj/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent" in url
+    assert headers["Authorization"] == "Bearer oauth-token"
+    assert "x-goog-api-key" not in headers
+
+
+def test_gemini_vertex_express_mode():
+    """Vertex without project/location -> express /v1/publishers path + api key."""
+    a = GeminiAdapter()
+    spec = RequestSpec(
+        provider="gemini",
+        prompt="hi",
+        params={"model": "gemini-2.0-flash"},
+        api_key="expr-key",
+        extra={"gemini": {"vertex": True}},
+        stream=True,
+    )
+    url, headers, _ = a.build_request(spec)
+    assert url.startswith("https://aiplatform.googleapis.com")
+    assert "/v1/publishers/google/models/gemini-2.0-flash:streamGenerateContent?alt=sse" in url
+    assert headers["x-goog-api-key"] == "expr-key"
+
+
 def test_usage_tokens_variants():
     """usage_tokens handles OpenAI and Bedrock-style keys."""
     assert usage_tokens({"prompt_tokens": 1, "completion_tokens": 2}) == (1, 2, 3)

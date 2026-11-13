@@ -114,7 +114,7 @@ Supported providers and what they need:
 | `anthropic` | `ANTHROPIC_API_KEY` | messages API; usage merged across SSE events |
 | `azure` | `AZURE_OPENAI_API_KEY` + `base_url` | deployment name via `params.model` |
 | `bedrock` | AWS credential chain | boto3 runtime client, Converse API |
-| `gemini` | `GEMINI_API_KEY` | generateContent/streamGenerateContent; Vertex AI via `endpoint` with `{model}` |
+| `gemini` | `GEMINI_API_KEY` or OAuth token env | AI Studio or Vertex AI (`gemini.vertex/project/location/auth`); bearer mode for Vertex OAuth2 |
 | `http` | optional `api_key_env` | any OpenAI-ish JSON endpoint |
 | `grpc` | — | `grpc.proto_path` + `method`/`request_template`, see below |
 

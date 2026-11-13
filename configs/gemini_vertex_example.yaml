@@ -1,0 +1,74 @@
+# Example: Google Vertex AI Gemini endpoint.
+# Two auth modes:
+#   auth: api_key  -> x-goog-api-key header (Vertex express mode; GEMINI_API_KEY)
+#   auth: bearer   -> Authorization: Bearer <token> — set api_key_env to an env
+#                     var holding an OAuth2 access token, e.g. export
+#                     GOOGLE_OAUTH_TOKEN=$(gcloud auth print-access-token)
+#                     or a service-account token from your secrets manager.
+# project+location build the full publishers/google path; omit them for
+# Vertex express mode (/v1/publishers/google/models/{model}:...).
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-vertex
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+    sample: { strategy: random, count: 50, seed: 7 }
+
+targets:
+  - name: vertex_gemini
+    layer: llm_api
+    provider: gemini
+    api_key_env: GOOGLE_OAUTH_TOKEN     # bearer mode: OAuth2 access token
+    stream: true
+    gemini:
+      vertex: true
+      project: my-gcp-project          # optional — omit for express mode
+      location: us-central1
+      auth: bearer
+    params:
+      model: gemini-2.0-flash
+      max_tokens: 256
+      temperature: 0.7
+    dataset: qa_pairs
+    timeout_s: 120
+    retries: 2
+    retry_backoff_s: 0.5
+
+scenarios:
+  - name: vertex_load
+    target: vertex_gemini
+    weight: 100
+    think_time: [0.5, 2.0]
+    quality:
+      sample_rate: 0.2
+      heuristics:
+        non_empty: true
+        min_chars: 10
+        max_chars: 8000
+
+load:
+  users: 10
+  spawn_rate: 2
+  duration: 5m
+
+thresholds:
+  scenarios:
+    vertex_load:
+      p95_ms: 30000
+      ttft_p95_ms: 5000
+      max_error_rate: 0.02
+  on_fail: fail
+  on_not_evaluated: warn
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/vertex
+  pricing: { input_per_1k: 0.0001, output_per_1k: 0.0004 }

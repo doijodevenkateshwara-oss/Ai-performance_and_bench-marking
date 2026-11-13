@@ -168,15 +168,30 @@ report:
   `request_template` (Jinja2 body) + `response_mapping` — subject to the
   SSRF `security.url_allowlist`.
 - **`provider: gemini`** — Google AI Studio (`generativelanguage.googleapis.com`,
-  `x-goog-api-key` auth via `api_key_env: GEMINI_API_KEY`). `params` map onto
-  `generationConfig` (`max_tokens`→`maxOutputTokens`, `top_p`→`topP`, …);
-  `system` becomes `systemInstruction`. Streaming uses
+  `x-goog-api-key` auth via `api_key_env: GEMINI_API_KEY`) **or Vertex AI**
+  via the `gemini:` block:
+
+  ```yaml
+  gemini:
+    vertex: true
+    project: my-gcp-project      # optional — omit for express mode
+    location: us-central1
+    auth: bearer                 # api_key | bearer
+  ```
+
+  `vertex: true` switches the base URL to
+  `https://<location>-aiplatform.googleapis.com` and the path to
+  `/v1/projects/<p>/locations/<l>/publishers/google/models/{model}:…`
+  (express mode drops project/location to `/v1/publishers/google/…`).
+  `auth: bearer` sends `Authorization: Bearer <token>` — point
+  `api_key_env` at an env var holding an OAuth2 access token (e.g.
+  `gcloud auth print-access-token` or a service-account token from your
+  secrets manager); `auth: api_key` keeps `x-goog-api-key` (express mode).
+  `params` map onto `generationConfig` (`max_tokens`→`maxOutputTokens`,
+  `top_p`→`topP`, …); `system` becomes `systemInstruction`. Streaming uses
   `streamGenerateContent?alt=sse` and yields TTFT/TPOT/ITL like other
-  providers. For **Vertex AI**, set `base_url` to
-  `https://<region>-aiplatform.googleapis.com` and `endpoint` to
-  `/v1/projects/<p>/locations/<r>/publishers/google/models/{model}:generateContent`
-  (the `{model}` placeholder is substituted per request). See
-  `configs/gemini_example.yaml`.
+  providers. See `configs/gemini_example.yaml` and
+  `configs/gemini_vertex_example.yaml`.
 - **Ollama / OpenAI-compatible local servers** — no dedicated provider
   needed: `provider: openai` + `base_url: http://localhost:11434/v1`
   (Ollama) or any LiteLLM/LM Studio/llama.cpp server exposing

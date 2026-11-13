@@ -75,12 +75,43 @@ class GeminiAdapter:
         method = "streamGenerateContent" if stream else "generateContent"
         return "/{version}/models/{model}:" + method + ("?alt=sse" if stream else "")
 
+    def _cfg(self, spec: RequestSpec) -> dict:
+        """Gemini/Vertex config dict from spec.extra (empty when unset)."""
+        return spec.extra.get("gemini") or {}
+
     def _endpoint(self, spec: RequestSpec) -> str:
-        """Resolve endpoint path, substituting model/version placeholders."""
+        """Resolve endpoint path for AI Studio or Vertex AI."""
+        cfg = self._cfg(spec)
         model = spec.params.get("model", "gemini-2.0-flash")
-        version = (spec.extra.get("gemini") or {}).get("api_version", "v1beta")
+        if spec.endpoint:
+            # explicit path override always wins ({model} still substituted)
+            return spec.endpoint.replace("{model}", model)
+        if cfg.get("vertex"):
+            method = "streamGenerateContent" if spec.stream else "generateContent"
+            if cfg.get("project") and cfg.get("location"):
+                path = (
+                    f"/v1/projects/{cfg['project']}/locations/{cfg['location']}"
+                    f"/publishers/google/models/{model}:{method}"
+                )
+            else:
+                # express mode: no project/location in the path
+                path = f"/v1/publishers/google/models/{model}:{method}"
+            return path + ("?alt=sse" if spec.stream else "")
+        version = cfg.get("api_version", "v1beta")
         tpl = spec.endpoint or self.default_endpoint(spec.stream)
         return tpl.replace("{model}", model).replace("{version}", version)
+
+    def _base_url(self, spec: RequestSpec) -> str:
+        """AI Studio or Vertex base URL (location-scoped when set)."""
+        if spec.base_url:
+            return spec.base_url.rstrip("/")
+        cfg = self._cfg(spec)
+        if cfg.get("vertex"):
+            loc = cfg.get("location")
+            if loc:
+                return f"https://{loc}-aiplatform.googleapis.com"
+            return "https://aiplatform.googleapis.com"
+        return self.default_base_url()
 
     def _contents(self, spec: RequestSpec) -> list[dict]:
         """Build Gemini contents from spec.messages or the single prompt."""
@@ -98,8 +129,12 @@ class GeminiAdapter:
     def build_request(self, spec: RequestSpec):
         """Assemble URL, x-goog-api-key headers, and generateContent body."""
         headers = {"Content-Type": "application/json"}
+        cfg = self._cfg(spec)
         if spec.api_key:
-            headers["x-goog-api-key"] = spec.api_key
+            if cfg.get("vertex") and cfg.get("auth", "api_key") == "bearer":
+                headers["Authorization"] = f"Bearer {spec.api_key}"
+            else:
+                headers["x-goog-api-key"] = spec.api_key
         body: dict = {"contents": self._contents(spec)}
         if spec.params.get("system"):
             body["systemInstruction"] = {"parts": [{"text": spec.params["system"]}]}
@@ -114,7 +149,7 @@ class GeminiAdapter:
             body["generationConfig"] = gen
         if spec.params.get("safety_settings"):
             body["safetySettings"] = spec.params["safety_settings"]
-        url = f"{(spec.base_url or self.default_base_url()).rstrip('/')}{self._endpoint(spec)}"
+        url = f"{self._base_url(spec)}{self._endpoint(spec)}"
         return url, headers, body
 
     def parse_response(
