@@ -3,6 +3,77 @@
 Production-style, multi-layer performance testing framework for AI/LLM
 applications built on **Locust** + **OpenTelemetry**.
 
+## 🎯 Objective
+
+LLM applications fail in ways traditional services don't — latency is
+non-deterministic, quality degrades silently under load, and cost scales
+with token volume. **llm-perf** is a Python framework for measuring and
+regressing those properties across the whole application, not just the
+model endpoint.
+
+- ⚡ **Before release** — benchmark latency, throughput, and cost at every
+  layer (API, RAG pipeline, agent loop, deployed endpoint, in-process
+  object) and gate merges on SLO thresholds
+- 🧪 **During development** — iterate on prompts, models, retrieval, and
+  orchestration with repeatable dataset-driven runs and regression diffs
+- 📈 **In production** — soak/stress/capacity profiles, continuous
+  monitoring hooks (OTel → Prometheus/Grafana/Jaeger), and alertable
+  threshold verdicts
+
+llm-perf is a collection of independent test layers sharing one config
+schema, dataset engine, quality scorer, and report pipeline — pick the
+layers you need and run them independently or together against any
+provider (OpenAI, Anthropic, Azure, Bedrock, Gemini/Vertex, HTTP, gRPC)
+or your own code.
+
+## 💡 Why This Project is Useful
+
+### 👩‍💻 For Developers
+* One YAML file describes targets, datasets, scenarios, load shape, and
+  SLOs — no test-code boilerplate per provider or layer
+* Local mock mode (`demo/`) exercises every layer with **zero API
+  credentials** before you spend a cent on real calls
+* Fast inner loop: `validate` → `run --profile smoke` → diff the HTML
+  report against the last baseline
+
+### 🧠 For AI/ML Teams
+* Measure what actually matters for LLMs: TTFT vs decode split (TPOT/ITL),
+  context recall, IR metrics (Recall@K, MRR, NDCG), agent step/tool/loop
+  behavior, and task success — not just HTTP latency
+* LLM-as-judge + heuristic quality scoring sampled *during* the load run,
+  with evaluated/judged counts and confidence intervals
+* Cost attribution by call site — generation, reranking, embeddings,
+  agent, judge — so you know where the money goes
+
+### 🏗️ For Platform / SRE Teams
+* Nine workload profiles (`smoke` → `soak`, incl. `stress`, `spike`,
+  `scalability`, `capacity`) driven by a real Locust `LoadTestShape` —
+  find knees, spikes, and leaks, not just averages
+* Distributed master/worker runs with deterministic dataset-shard
+  coverage validation
+* OTel traces/metrics out of the box; Grafana dashboard + Prometheus +
+  Jaeger docker stack included; webhook alerts on threshold breach
+
+### 🔒 For Security / Compliance
+* Guardrails for untrusted configs: URL allowlist, private-network/SSRF
+  blocking, redirect re-validation, response-size caps, secret redaction
+  in reports, and a `python_execution` gate for code-executing targets
+* Reproducibility manifest in every report — git commit, config/dataset
+  hashes, framework version — so evidence is auditable and comparable
+
+## ⚙️ Capabilities
+
+| Capability | Purpose | Typical use |
+|---|---|---|
+| 🧪 Multi-layer benchmarking | `llm_api`, `pipeline` (RAG/agent), `app_endpoint` (HTTP/gRPC), `app_object` (LangChain/LlamaIndex/custom) | Release gates, provider/model comparisons |
+| 📊 Streaming-aware metrics | TTFT, TPOT, ITL, generation duration, tokens/sec, queue wait | Chat/agent UX and decode-bound analysis |
+| 🧠 Quality under load | Heuristics + LLM-judge + RAG recall + IR metrics, with sampling transparency | "Does quality hold at 50 users?" |
+| 💰 Cost accounting | Per-scenario `cost_usd`, cost-per-success, call-site breakdown | Budget SLOs, spend attribution |
+| 🎚️ Workload profiles | smoke/baseline/load/stress/spike/soak/scalability/capacity/custom stages | Capacity planning, soak tests, CI smoke |
+| 🚦 SLO gating | pass/fail/not_evaluated thresholds, exit codes, webhook alerts, regression vs baseline | CI pipelines, production readiness |
+| 🔭 Observability | OTel traces/metrics, Grafana/Prometheus/Jaeger stack, resource monitoring | Dashboards, bottleneck analysis, ops review |
+| 🧾 Evidence & reporting | CSV/JSON/HTML reports, run history, provenance manifest | Audit trails, regression tracking |
+
 Test LLM systems at multiple layers from declarative YAML configs — pick the
 layers you care about and run them independently or together:
 
@@ -664,3 +735,29 @@ pytest -q          # 95 tests incl. a real Locust e2e run vs a mock server
 - `app_object` needs the framework installed as an extra and a smoke test in
   your environment before trusting absolute numbers.
 - Secrets come from env vars / cloud credential chains only — never config files.
+
+## Contributing
+
+Contributions are welcome! 🎉 Fork the repository, make your change, and
+open a pull request with a short description of what you changed and why.
+
+- 🐛 Found a bug or have an idea?
+  [Open an issue](https://github.com/doijodevenkateshwara-oss/Ai-performance_and_bench-marking/issues)
+- 🔧 Ready to contribute?
+  [Submit a pull request](https://github.com/doijodevenkateshwara-oss/Ai-performance_and_bench-marking/pulls)
+- ⭐ Like the project?
+  [Give it a star](https://github.com/doijodevenkateshwara-oss/Ai-performance_and_bench-marking)
+  to help others find it
+
+Development setup: `pip install -e ".[dev]"`, then `ruff check llm_perf
+tests`, `black --check llm_perf tests`, and `pytest -q`.
+
+## 📄 License
+
+llm-perf is open source under the MIT License — see the `LICENSE` file for
+the [license terms](https://github.com/doijodevenkateshwara-oss/Ai-performance_and_bench-marking/blob/main/LICENSE).
+
+## 👤 Author
+
+Created and maintained by
+[Venkateshwara Doijode](https://github.com/VenkateshDoijode).
