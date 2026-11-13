@@ -23,7 +23,7 @@ metrics for every request:
 | Token metrics | `PROMPT_TOKENS`, `COMPLETION_TOKENS`, `TOKENS_PER_SEC`, `INPUT_TOKENS_PER_SEC` | Context-window pressure and decode throughput |
 | Cost | `cost_usd`, `cost_per_success_usd`, `cost_breakdown` (when `report.pricing` set) | $ per run / per successful answer, split by call site: `generation`, `reranking`, `embedding`, `agent`, `judge`, `retry`, `unattributed` |
 | Latency composition | `composition` in JSON, stacked-share chart in HTML | Per-request stage shares of e2e (median across requests). **Percentiles are never subtracted** — shares are computed inside each request first, then aggregated |
-| Agent stats (agent stage only) | `AGENT_STEPS`, `AGENT_TOOL_CALLS`, `AGENT_SUCCESS`, `AGENT_LOOPS` | Tool-loop behavior, iterations, loop detection |
+| Agent stats (agent stage only) | `AGENT_STEPS`, `AGENT_TOOL_CALLS`, `AGENT_TOOL_ERRORS`, `AGENT_LOOPS`, `AGENT_SUCCESS`, per-tool stats | Tool-loop behavior, iterations, loop detection, task success |
 | Traces | Jaeger (when OTel enabled) | Per-request span waterfall: retrieve → rerank → generate |
 
 The key RAG insight: **retrieval quality and generation quality are measured
@@ -190,8 +190,8 @@ report:
   (joined retrieved texts), `row` (dataset row), and every row field as a
   variable, then calls `llm`. Dataset columns literally named `question`,
   `context`, or `row` are reserved — they won't override the pipeline values.
-- **`agent`** — tool-calling loop instead of generate; see
-  `configs/agent_example.yaml`.
+- **`agent`** — tool-calling loop *instead of* `generate`; the model decides
+  which tools to call and when to stop. See **Agent pipelines** below.
 
 ### Prompt template (`prompts/rag_answer.j2`)
 
@@ -210,6 +210,107 @@ Answer:
 the dataset row's prompt field; any other `{{ var }}` resolves from row fields
 then dataset/target `vars` pools.
 
+## 2b. Agent pipelines (tool-calling loops)
+
+The `agent` stage is **not** the same thing as a RAG pipeline — it's a
+different execution model inside the same `layer: pipeline` target:
+
+| | RAG pipeline (`retrieve → rerank → generate`) | Agent pipeline (`stage: agent`) |
+|---|---|---|
+| Flow | Deterministic: fetch docs once → one LLM call | Iterative: LLM emits `tool_calls` → engine executes → results fed back → repeat until final answer or `max_iterations` |
+| Retrieval | Fixed stage, every request, same `top_k` | A *tool the model chooses* to call — `type: retrieve` tools hit the same vector stores on demand |
+| Cost shape | ~1 generation call (+rerank calls) per request | N LLM calls per request (one per step) + tool calls — watch `cost_breakdown.agent` |
+| Latency shape | retrieve+rerank+generate segments | `agent_step` + `agent_tool` segments per iteration |
+| Quality signal | `CONTEXT_RECALL` + IR metrics (recall@k…) | `AGENT_SUCCESS` task-eval + tool error/loop rates |
+| Failure modes | Bad retrieval → bad context | Tool errors, loops, max-iteration exhaustion, cost-cap stops |
+
+They compose: `retrieve → agent` gives the agent pre-fetched context *plus*
+tools; an agent with a `type: retrieve` tool does retrieval **on demand**
+(agentic RAG) instead of every request paying for it.
+
+### Agent config (`configs/agent_example.yaml`)
+
+```yaml
+targets:
+  - name: support_agent
+    layer: pipeline
+    dataset: questions                 # expected_answer drives success eval
+    pipeline:
+      - stage: agent
+        max_iterations: 6              # hard stop on loop length
+        max_cost_usd: 0.10             # stop the loop if est. spend exceeds this
+        loop_repeat_threshold: 3        # identical tool+args xN -> loop flag
+        success:                       # task-success evaluation -> AGENT_SUCCESS
+          expected_field: expected_answer   # dataset column compared to final answer
+          match: contains              # contains | exact | regex
+          on_max_iterations: fail      # fail | pass — exhausting iterations = failure?
+          require_tool_use: false      # require >=1 tool call for success
+        llm:
+          provider: openai             # any llm_api provider works here
+          model: gpt-4o
+          api_key_env: OPENAI_API_KEY
+          params: { temperature: 0.2, max_tokens: 1024 }
+        tools:
+          # type: http — POST tool args as JSON to an external API
+          - name: search_docs
+            type: http
+            description: Search the internal docs index
+            url: http://localhost:8080/search
+            method: POST
+            api_key_env: SEARCH_API_KEY
+            parameters:
+              query: { type: string, description: search query }
+          # type: function — import path "module.path:callable" (args -> kwargs)
+          - name: get_order_status
+            type: function
+            import_path: "example_tools.orders:get_status"
+            description: Look up order status by order id
+          # type: retrieve — vector-store tool inside the loop (agentic RAG)
+          - name: company_kb
+            type: retrieve
+            description: Search the company knowledge base
+            vector_store: { type: json, path: ../datasets/docs.jsonl }
+            top_k: 3
+```
+
+Tool types: `http` (external API, SSRF-guarded), `function` (Python import —
+requires `security.python_execution: allow` or trusted config), `retrieve`
+(same `vector_store` backends as the retrieve stage).
+
+### Agent metrics & thresholds
+
+Report fields per scenario: `agent_runs`, `agent_success_rate`,
+`agent_steps_avg`, `agent_tool_calls_avg`, `agent_tool_error_rate`,
+`agent_loops_avg`; stage timings `agent_step`/`agent_tool`; all agent LLM
+spend lands in `cost_breakdown.<scenario>.agent`.
+
+```yaml
+thresholds:
+  scenarios:
+    agent_load:
+      p95_ms: 120000                 # agent e2e is N x llm_api latency — set generously
+      max_error_rate: 0.05
+      min_agent_success_rate: 0.8    # task success >= 80%
+      max_agent_tool_error_rate: 0.1 # tool failures <= 10% of calls
+      max_agent_loops_avg: 0.2       # loop detections per run
+      stages:
+        agent_step: { p95_ms: 30000 }
+        agent_tool: { p95_ms: 5000 }
+```
+
+### Reading agent results
+
+- **`agent_success_rate` < target** → check `agent_loops_avg` (looping
+  without progress), `agent_tool_error_rate` (broken tools), and
+  `on_max_iterations` semantics — exhausted iterations may be counted as
+  failures by design.
+- **Steps avg ≫ expected** → the model is over-calling tools; tighten the
+  tool `description`s or lower `max_iterations`.
+- **`cost_breakdown.agent` dominates** → each step is a full LLM call;
+  fewer/simpler tools or a cheaper `llm.model` for the agent loop helps.
+- **Composition** shows `agent_step` vs `agent_tool` median shares — tool
+  latency vs LLM latency split per request.
+
 ## 3. Run the test
 
 ```bash
@@ -220,10 +321,15 @@ pip install chromadb
 
 # validate config before spending tokens
 llm-perf validate -c configs/rag_example.yaml
+llm-perf validate -c configs/agent_example.yaml   # agent pipeline variant
 
 # quick smoke (5 users, 2 minutes)
 llm-perf run -c configs/rag_example.yaml --headless \
   --users 5 --spawn-rate 1 --duration 2m
+
+# agent pipeline — same commands, agent_example.yaml
+llm-perf run -c configs/agent_example.yaml --headless \
+  --users 3 --spawn-rate 1 --duration 3m
 
 # override the profile shape entirely
 llm-perf run -c configs/rag_example.yaml --profile stress --headless
