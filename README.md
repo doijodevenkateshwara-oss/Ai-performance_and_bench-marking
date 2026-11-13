@@ -630,6 +630,7 @@ Detailed guides live in [`docs/`](docs/README.md):
 - [Architecture](docs/architecture.md) — system design, request lifecycle, layers, observability
 - [How to run](docs/how-to-run.md) — install, CLI usage, profiles, Docker stack, CI
 - [Test results](docs/test-results.md) — report formats, metrics, thresholds, baselines, interpretation
+- [RAG performance testing](docs/rag-performance-testing.md) — end-to-end RAG benchmarking guide
 - [Methodology](docs/methodology.md) — timing accuracy, gevent concurrency, when streaming metrics are unreliable
 - [Live demo](docs/demo.md) — Docker observability stack, dashboard URLs, mock test walkthrough
 
