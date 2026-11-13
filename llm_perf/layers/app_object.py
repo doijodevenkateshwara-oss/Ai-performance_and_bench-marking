@@ -39,7 +39,9 @@ class AppObjectLayer:
         self.target = target
         self.picker = picker
         self._app = None
-        self._loop = None
+        # one event loop per greenlet — see _run_coro for why a shared loop
+        # (and a shared OS thread) cannot host concurrent asyncio loops
+        self._loops: dict = {}
 
     def _get_app(self):
         """Import python_path and instantiate the app once per worker."""
@@ -51,6 +53,41 @@ class AppObjectLayer:
                 app = factory(**self.target.init_args)
             self._app = app
         return self._app
+
+    def _loop_for_current(self):
+        """Return this greenlet's event loop, creating it on first use."""
+        import asyncio
+
+        import greenlet
+
+        g = greenlet.getcurrent()
+        loop = self._loops.get(g)
+        if loop is None or loop.is_closed():
+            loop = asyncio.new_event_loop()
+            self._loops[g] = loop
+        return loop
+
+    @staticmethod
+    def _run_coro(loop, coro):
+        """run_until_complete that tolerates sibling greenlet loops.
+
+        asyncio tracks "the running loop" in OS-thread state, but Locust
+        greenlets share the thread — and gevent's patched selector yields
+        to the hub *inside* run_forever, so a sibling greenlet can reach
+        run_until_complete while our loop is only suspended, not finished.
+        The guard is advisory (gevent selectors make concurrent loops
+        cooperative), so clear the stale marker before starting ours.
+        Caveat: ``asyncio.get_running_loop()`` inside app code may observe
+        a sibling's loop during interleaving — rare in practice.
+        """
+        import asyncio.events as _ev
+
+        try:
+            if _ev._get_running_loop() is not None:
+                _ev._set_running_loop(None)
+        except Exception:
+            pass  # private API drift — fall back to plain run_until_complete
+        return loop.run_until_complete(coro)
 
     async def _acall(self, app, method: str, prompt: str, row: dict | None):
         """Invoke the configured method, awaiting coroutines as needed."""
@@ -73,19 +110,15 @@ class AppObjectLayer:
     def run(
         self, prompt: str, row: dict | None, scenario_params: dict, scenario_name: str = "default"
     ) -> LayerResult:
-        # app_object calls are async-friendly; run via asyncio in the greenlet
-        """Execute the app call on a private event loop and record metrics."""
-        import asyncio
-
+        # app_object calls are async-friendly; each greenlet drives its own
+        # event loop cooperatively under gevent's patched selectors
+        """Execute the app call on this greenlet's loop and record metrics."""
         t = self.target
         with request_span(scenario_name, t.name, f"app_{t.framework}") as span:
             start = time.monotonic()
             try:
                 app = self._get_app()
-                # reuse one loop per layer — creating/closing per request is wasteful
-                if self._loop is None or self._loop.is_closed():
-                    self._loop = asyncio.new_event_loop()
-                result = self._loop.run_until_complete(self._acall(app, t.call, prompt, row))
+                result = self._run_coro(self._loop_for_current(), self._acall(app, t.call, prompt, row))
                 e2e = time.monotonic() - start
                 text = _extract_text(result)
                 from ..metrics import instruments, log_request_event

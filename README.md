@@ -637,6 +637,9 @@ Detailed guides live in [`docs/`](docs/README.md):
 - [Test results](docs/test-results.md) — report formats, metrics, thresholds, baselines, interpretation
 - [LLM API performance testing](docs/llm-api-performance-testing.md) — end-to-end direct-LLM benchmarking guide
 - [RAG performance testing](docs/rag-performance-testing.md) — end-to-end RAG benchmarking guide
+- [App endpoint performance testing](docs/app-endpoint-performance-testing.md) — black-box HTTP/gRPC endpoint benchmarking guide
+- [App object performance testing](docs/app-object-performance-testing.md) — in-process LangChain/LlamaIndex/custom-object benchmarking guide
+- [Workload profiles](docs/workload-profiles.md) — load shaping (smoke→soak), custom stages, E2E testing flow
 - [Methodology](docs/methodology.md) — timing accuracy, gevent concurrency, when streaming metrics are unreliable
 - [Live demo](docs/demo.md) — Docker observability stack, dashboard URLs, mock test walkthrough
 
