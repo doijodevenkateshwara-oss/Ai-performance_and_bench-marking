@@ -78,11 +78,29 @@ Three `vector_store.type` options:
 |---|---|---|
 | `json` | `{type: json, path: docs.jsonl}` | Local JSON/JSONL docs; **keyword-overlap scoring, no embeddings** — fine for framework testing, not representative of a real vector DB |
 | `http` | `{type: http, url: "...", api_key_env: X, headers: {...}, params: {...}}` | POSTs `{query, top_k}`; normalizes `results`/`documents`/`chunks`/list responses. Point at your real retrieval service (Pinecone/Qdrant/Weaviate proxy, Elasticsearch, etc.) |
-| `chroma` | `{type: chroma, path: ./chroma_db, collection: llm_perf}` | Local Chroma via `pip install chromadb` |
+| `chroma` | `{type: chroma, path: ./chroma_db, collection: llm_perf}` | Local Chroma vector store — **only install chromadb if you actually benchmark a Chroma-backed setup** (see note below) |
 
 For the `json` type each doc needs a `text` (or `content`) field; `score` and
 extra metadata are passed through. For `http`, docs accept `text`, `content`,
 `page_content`, or `score`.
+
+> **Choosing a store — what you're actually benchmarking.** The `retrieve`
+> stage measures *your retrieval dependency's per-request latency* as part of
+> the pipeline — it is not a profiler of the store itself. Pick the backend
+> that matches your production setup:
+>
+> - **`http` is the production path** — point `vector_store.url` at your real
+>   vector DB / retrieval service (Pinecone, Qdrant, Weaviate, Elasticsearch,
+>   pgvector proxy, a custom retriever…). This is what answers "how does my RAG
+>   pipeline perform against the store I actually run?"
+> - **`json` is for framework testing** — keyword overlap, no embeddings;
+>   retrieval is ~free so the benchmark isolates LLM/quality behavior.
+> - **`chroma` is only for Chroma-backed setups** — e.g. "how does retrieval
+>   latency scale as my local Chroma collection grows?" The stage-timing
+>   metric shows Chroma's per-request query time like any other dependency;
+>   we are not profiling ChromaDB internals. Skip it (and skip
+>   `pip install chromadb`) unless that's your store — it's a lazy import,
+>   not a package extra, precisely because most runs don't need it.
 
 ## 2. Configure the pipeline
 
