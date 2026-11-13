@@ -292,9 +292,47 @@ def compare_runs(current: dict, baseline: dict | None) -> dict | None:
     return {
         "baseline_generated_at": baseline.get("generated_at"),
         "baseline_profile": (baseline.get("load") or {}).get("profile"),
+        "provenance": _provenance_drift(current, baseline),
         "metrics": metrics,
         "per_scenario": per_scenario,
     }
+
+
+def _provenance_drift(current: dict, baseline: dict) -> dict:
+    """Flag manifest differences that make deltas unreliable (config/dataset/code drift)."""
+    cur_man = current.get("manifest") or {}
+    base_man = baseline.get("manifest") or {}
+    drift = []
+
+    def _cmp(label, cur_val, base_val):
+        """Record a drift note when both sides have a value and they differ."""
+        if cur_val is not None and base_val is not None and cur_val != base_val:
+            drift.append({"field": label, "current": cur_val, "baseline": base_val})
+
+    _cmp(
+        "config_sha256",
+        (cur_man.get("config") or {}).get("sha256"),
+        (base_man.get("config") or {}).get("sha256"),
+    )
+    cur_datasets = cur_man.get("datasets") or {}
+    base_datasets = base_man.get("datasets") or {}
+    for name in sorted(set(cur_datasets) | set(base_datasets)):
+        _cmp(
+            f"dataset:{name}",
+            (cur_datasets.get(name) or {}).get("sha256"),
+            (base_datasets.get(name) or {}).get("sha256"),
+        )
+    _cmp(
+        "git_commit",
+        (cur_man.get("git") or {}).get("commit"),
+        (base_man.get("git") or {}).get("commit"),
+    )
+    _cmp(
+        "framework_version",
+        (cur_man.get("framework") or {}).get("version"),
+        (base_man.get("framework") or {}).get("version"),
+    )
+    return {"drift": drift, "comparable": not drift}
 
 
 def _agg_metric(scenarios, key: str):

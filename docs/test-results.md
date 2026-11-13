@@ -14,6 +14,30 @@ Every run writes files named `llm-perf-<timestamp>.{csv,json,html}` into
 | JSON | CI, regression tracking, programmatic analysis | Full report dict: totals, per-scenario methods + enriched metrics, thresholds verdicts, load profile, phases, stages, resources, analysis, comparison, regression |
 | HTML | Stakeholders, executive review | Verdict banner, summary cards, per-scenario table, latency composition chart, stage breakdown, bottleneck analysis, SLO rollup, cost, resource utilization, baseline comparison, regression detection, quality |
 
+## Reproducibility manifest
+
+Every report embeds a `manifest` block (also mirrored as top-level `run_id`)
+so historical comparisons stay trustworthy when configs, datasets, models,
+or pricing change between runs:
+
+| Field | Contents |
+|---|---|
+| `run_id` / `generated_at` | UUID + timestamp identifying the run |
+| `framework` | llm-perf version, Locust version, Python version |
+| `git` | commit SHA, dirty flag, repo root (best-effort, `null` outside a repo) |
+| `config` | config file path + SHA-256 of the canonical *effective* config (secret-looking keys redacted before hashing) |
+| `datasets` | per-dataset source, raw-byte SHA-256, size — fingerprints input data before sampling/mapping |
+| `targets` | per-target layer, provider, model, host (no userinfo), region/api-version where applicable; pipeline targets list their stage `llm` refs |
+| `load` | profile, users, spawn rate, duration |
+| `load_generator` | Python/platform, CPU count, total RAM, hostname |
+| `pricing` | the per-1k-token rates snapshot used for cost estimates + `captured_at` |
+
+Baseline comparisons (`report.comparison.provenance`) flag **drift** when the
+config hash, any dataset hash, git commit, or framework version differs from
+the baseline — deltas across drifted runs should be treated as indicative,
+not apples-to-apples. History index entries carry `run_id`, `config_sha256`,
+and `dataset_hashes` for the same reason.
+
 ## Sample results
 
 `docs/sample-results/` contains a real generated run against a mock OpenAI

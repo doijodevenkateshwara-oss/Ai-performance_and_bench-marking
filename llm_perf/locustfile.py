@@ -245,9 +245,13 @@ def _run_reports_and_thresholds(environment) -> None:
 
 def _enrich_report(report: dict, stage_stats: dict) -> None:
     """Attach load profile, stages, resources, analysis, comparison to report."""
-    from . import analysis, history
+    from . import analysis, history, manifest
     from .metrics import peak_users
     from .workload import schedule_summary
+
+    # reproducibility manifest — provenance for cross-run comparisons
+    report["manifest"] = manifest.build(_config, _config_path)
+    report["run_id"] = report["manifest"]["run_id"]
 
     report["load"] = {
         "profile": _config.load.profile,

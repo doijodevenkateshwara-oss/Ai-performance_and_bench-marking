@@ -117,18 +117,18 @@ def _read_rows(source: str, fmt: str) -> list[dict]:
     return rows
 
 
-def _read_text(source: str) -> str:
-    """Read a dataset source (local/http/s3/gs) with byte + timeout caps."""
+def _read_bytes(source: str) -> bytes:
+    """Read a dataset source (local/http/s3/gs) as raw bytes, enforcing caps."""
     from .security import check_url, checked_urlopen, get_policy
 
     pol = get_policy()
     max_bytes = pol.dataset_max_bytes
 
-    def _cap(data: bytes, origin: str) -> str:
-        """Decode bytes to text, enforcing the dataset byte cap."""
+    def _cap(data: bytes, origin: str) -> bytes:
+        """Enforce the dataset byte cap on raw content."""
         if len(data) > max_bytes:
             raise ValueError(f"dataset {origin!r} exceeds security.dataset_max_bytes={max_bytes}")
-        return data.decode("utf-8")
+        return data
 
     if source.startswith(("http://", "https://")):
         check_url(source)
@@ -150,7 +150,12 @@ def _read_text(source: str) -> str:
     p = Path(source)
     if p.stat().st_size > max_bytes:
         raise ValueError(f"dataset {source!r} exceeds security.dataset_max_bytes={max_bytes}")
-    return p.read_text(encoding="utf-8")
+    return p.read_bytes()
+
+
+def _read_text(source: str) -> str:
+    """Read a dataset source as UTF-8 text (bytes path + decode)."""
+    return _read_bytes(source).decode("utf-8")
 
 
 def _map_columns(row: dict, columns: dict[str, str]) -> dict:

@@ -41,13 +41,18 @@ def record_run(report: dict, config: PerfConfig) -> Path | None:
             i += 1
         path.write_text(json.dumps(report, indent=2, default=str))
         totals = report.get("totals") or {}
+        man = report.get("manifest") or {}
         entry = {
             "ts": report.get("generated_at"),
+            "run_id": report.get("run_id") or man.get("run_id"),
             "file": path.name,
             "requests": totals.get("requests"),
             "failures": totals.get("failures"),
             "error_rate": totals.get("error_rate"),
             "profile": (report.get("load") or {}).get("profile"),
+            # provenance for drift detection across baselines
+            "config_sha256": (man.get("config") or {}).get("sha256"),
+            "dataset_hashes": {k: v.get("sha256") for k, v in (man.get("datasets") or {}).items()},
         }
         with _index_path(config).open("a") as f:
             f.write(json.dumps(entry) + "\n")
