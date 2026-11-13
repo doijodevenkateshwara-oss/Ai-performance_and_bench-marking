@@ -76,7 +76,7 @@ throughput (tokens/sec), token accounting, and dollar cost.
 targets:
   - name: openai_chat
     layer: llm_api
-    provider: openai            # openai | anthropic | azure | bedrock | http | grpc
+    provider: openai            # openai | anthropic | azure | bedrock | gemini | http | grpc
     base_url: https://api.openai.com/v1   # optional; sensible defaults per provider
     api_key_env: OPENAI_API_KEY           # env var holding the key (never put keys in YAML)
     stream: true                          # true => TTFT + tokens/sec are measured
@@ -114,8 +114,13 @@ Supported providers and what they need:
 | `anthropic` | `ANTHROPIC_API_KEY` | messages API; usage merged across SSE events |
 | `azure` | `AZURE_OPENAI_API_KEY` + `base_url` | deployment name via `params.model` |
 | `bedrock` | AWS credential chain | boto3 runtime client, Converse API |
+| `gemini` | `GEMINI_API_KEY` | generateContent/streamGenerateContent; Vertex AI via `endpoint` with `{model}` |
 | `http` | optional `api_key_env` | any OpenAI-ish JSON endpoint |
 | `grpc` | — | `grpc.proto_path` + `method`/`request_template`, see below |
+
+Ollama and other OpenAI-compatible local servers (LM Studio, llama.cpp,
+LiteLLM) work via `provider: openai` + `base_url` — see
+`configs/ollama_example.yaml`.
 
 ### 2. `pipeline` — declarative RAG / agent pipelines
 
@@ -606,7 +611,7 @@ llm_perf/
   tasks.py         # per-request pipeline + quality hook
   metrics.py       # OTel instruments + Locust stats bridge
   otel/            # tracer/meter setup, GenAI semconv
-  providers/       # openai, azure, anthropic, bedrock, http, grpc adapters
+  providers/       # openai, azure, anthropic, bedrock, gemini, http, grpc adapters
   transports/      # http + grpc for app_endpoint layer
   layers/          # llm_api, pipeline, app_endpoint, app_object
   pipelines/       # declarative stage engine (retrieve/rerank/generate/agent)

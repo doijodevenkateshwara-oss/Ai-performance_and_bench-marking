@@ -45,6 +45,7 @@ class LlmApiLayer:
             extra={
                 "azure": t.azure.model_dump() if t.azure else {},
                 "aws": t.aws.model_dump() if t.aws else {},
+                "gemini": t.gemini.model_dump() if t.gemini else {},
                 "grpc": t.grpc.model_dump() if t.grpc else {},
                 "request_template": t.request_template,
                 "response_mapping": t.response_mapping,

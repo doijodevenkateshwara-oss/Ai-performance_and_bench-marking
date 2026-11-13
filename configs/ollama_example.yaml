@@ -1,0 +1,64 @@
+# Example: local Ollama model via its OpenAI-compatible endpoint.
+# No API key needed — Ollama exposes /v1/chat/completions at :11434.
+# Start ollama + pull a model first: `ollama serve` && `ollama pull llama3.1:8b`
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-ollama
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+    sample: { strategy: random, count: 50, seed: 7 }
+
+targets:
+  - name: ollama_chat
+    layer: llm_api
+    provider: openai                  # Ollama is OpenAI-compatible
+    base_url: http://localhost:11434/v1
+    # api_key_env: OLLAMA_API_KEY     # only if your Ollama front-door requires one
+    stream: true
+    params:
+      model: llama3.1:8b
+      max_tokens: 256
+      temperature: 0.7
+      num_ctx: 8192                   # passed through to Ollama options
+    dataset: qa_pairs
+    timeout_s: 300                    # local models can be slow on CPU
+    retries: 1
+
+scenarios:
+  - name: ollama_load
+    target: ollama_chat
+    weight: 100
+    think_time: [0.5, 2.0]
+    quality:
+      sample_rate: 0.2
+      heuristics:
+        non_empty: true
+        min_chars: 10
+        max_chars: 8000
+
+load:
+  users: 4
+  spawn_rate: 1
+  duration: 5m
+
+thresholds:
+  scenarios:
+    ollama_load:
+      p95_ms: 120000
+      ttft_p95_ms: 30000
+      max_error_rate: 0.05
+  on_fail: warn
+  on_not_evaluated: warn
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/ollama
+  pricing: {}                          # local inference: no per-token cost

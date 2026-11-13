@@ -59,6 +59,7 @@ and observability assets. This page maps every file/directory to its role.
 | `providers/azure.py` | Azure OpenAI adapter — deployment URL routing, `api-key` header, `api-version` query param |
 | `providers/anthropic.py` | Anthropic Messages API adapter, streaming via SSE event types |
 | `providers/bedrock.py` | AWS Bedrock Converse API adapter via boto3 in a thread pool, unary + streaming |
+| `providers/gemini.py` | Google Gemini generateContent/streamGenerateContent adapter — `x-goog-api-key` auth, generationConfig mapping, usageMetadata → token counts, Vertex AI via `{model}` endpoint override |
 | `providers/http.py` | Generic HTTP provider for OpenAI-ish JSON endpoints, optional Jinja request template |
 | `providers/grpc.py` | gRPC adapter: compiles `.proto`, loads stubs, builds request messages, calls Triton-style RPCs |
 

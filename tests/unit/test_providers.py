@@ -9,6 +9,7 @@ from llm_perf.providers import RequestSpec
 from llm_perf.providers.anthropic import AnthropicAdapter
 from llm_perf.providers.azure import AzureAdapter
 from llm_perf.providers.base import NormalizedResponse, usage_tokens
+from llm_perf.providers.gemini import GeminiAdapter
 from llm_perf.providers.openai import OpenAIAdapter
 
 
@@ -134,6 +135,88 @@ def test_azure_url_and_headers():
     assert "Authorization" not in headers
     assert "/deployments/my-deployment/" in url
     assert "model" not in body
+
+
+def test_gemini_build_request():
+    """Gemini request uses x-goog-api-key, model path, generationConfig."""
+    a = GeminiAdapter()
+    spec = RequestSpec(
+        provider="gemini",
+        prompt="hi",
+        params={
+            "model": "gemini-2.0-flash",
+            "max_tokens": 64,
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "system": "be terse",
+        },
+        api_key="gkey",
+        stream=False,
+    )
+    url, headers, body = a.build_request(spec)
+    assert url.endswith("/v1beta/models/gemini-2.0-flash:generateContent")
+    assert headers["x-goog-api-key"] == "gkey"
+    assert "Authorization" not in headers
+    assert body["contents"][0]["parts"][0]["text"] == "hi"
+    assert body["systemInstruction"]["parts"][0]["text"] == "be terse"
+    gen = body["generationConfig"]
+    assert gen["maxOutputTokens"] == 64 and gen["temperature"] == 0.2 and gen["topP"] == 0.9
+
+
+def test_gemini_stream_url_and_endpoint_override():
+    """Streaming hits streamGenerateContent?alt=sse; custom endpoint supports {model}."""
+    a = GeminiAdapter()
+    spec = _spec(provider="gemini", stream=True)
+    url, _, _ = a.build_request(spec)
+    assert ":streamGenerateContent?alt=sse" in url
+    # Vertex-style endpoint override with {model} placeholder
+    spec2 = RequestSpec(
+        provider="gemini",
+        prompt="hi",
+        params={"model": "gemini-2.0-flash"},
+        base_url="https://us-central1-aiplatform.googleapis.com",
+        endpoint="/v1/projects/p/locations/us-central1/publishers/google/models/{model}:generateContent",
+    )
+    url2, _, _ = a.build_request(spec2)
+    assert "publishers/google/models/gemini-2.0-flash:generateContent" in url2
+
+
+def test_gemini_parse_response():
+    """Unary generateContent parses candidates text + usageMetadata."""
+    a = GeminiAdapter()
+    body = json.dumps(
+        {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "gemini says hi"}]},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 7,
+                "candidatesTokenCount": 5,
+                "totalTokenCount": 12,
+            },
+        }
+    ).encode()
+    r = a.parse_response(200, {}, body)
+    assert r.text == "gemini says hi"
+    assert r.prompt_tokens == 7 and r.completion_tokens == 5 and r.total_tokens == 12
+    assert r.finish_reason == "STOP"
+
+
+def test_gemini_parse_stream():
+    """SSE chunks parse text deltas, skip thought parts, merge usage."""
+    a = GeminiAdapter()
+    lines = [
+        'data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}',
+        'data: {"candidates":[{"content":{"parts":[{"text":" thinking","thought":true},{"text":" world"}]}}]}',
+        'data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}',
+    ]
+    r = a.parse_response(200, {}, b"", stream_iter=iter(lines))
+    assert r.text == "Hello world"
+    assert r.prompt_tokens == 3 and r.completion_tokens == 2
+    assert r.ttft_s is not None
 
 
 def test_usage_tokens_variants():

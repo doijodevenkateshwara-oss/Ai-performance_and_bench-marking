@@ -1,0 +1,76 @@
+# Example: Google Gemini generateContent with streaming + quality checks
+# Auth: GEMINI_API_KEY env var (AI Studio key from aistudio.google.com).
+# Vertex AI alternative: set `endpoint` to a path containing {model}, e.g.
+#   /v1/projects/<PROJECT>/locations/<LOC>/publishers/google/models/{model}:generateContent
+# and point base_url at https://<LOC>-aiplatform.googleapis.com
+observability:
+  otel:
+    enabled: true
+    endpoint: http://localhost:4317
+    service_name: llm-perf-gemini
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+    sample: { strategy: random, count: 50, seed: 7 }
+
+targets:
+  - name: gemini_chat
+    layer: llm_api
+    provider: gemini
+    api_key_env: GEMINI_API_KEY
+    stream: true
+    gemini:
+      api_version: v1beta               # Generative Language API version
+    params:
+      model: gemini-2.0-flash
+      max_tokens: 256
+      temperature: 0.7
+      top_p: 0.95
+      # system: "Answer concisely."     # optional systemInstruction
+    dataset: qa_pairs
+    timeout_s: 120
+    retries: 2
+    retry_backoff_s: 0.5
+
+scenarios:
+  - name: gemini_load
+    target: gemini_chat
+    weight: 100
+    think_time: [0.5, 2.0]
+    quality:
+      sample_rate: 0.2
+      heuristics:
+        non_empty: true
+        min_chars: 10
+        max_chars: 8000
+      judge:
+        provider: openai
+        model: gpt-4o
+        rubric: "Score 1-5 on correctness, helpfulness, and conciseness"
+        scale: [1, 5]
+
+load:
+  users: 10
+  spawn_rate: 2
+  duration: 5m
+
+thresholds:
+  scenarios:
+    gemini_load:
+      p95_ms: 30000
+      ttft_p95_ms: 5000
+      tpot_p95_ms: 100
+      max_error_rate: 0.02
+      min_quality_score: 0.6
+  on_fail: fail
+  on_not_evaluated: warn
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/gemini
+  pricing: { input_per_1k: 0.0001, output_per_1k: 0.0004 }   # gemini-2.0-flash rates

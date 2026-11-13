@@ -1,9 +1,9 @@
 # LLM API performance testing with llm-perf
 
 End-to-end guide to benchmarking **direct LLM API calls** (layer `llm_api`)
-with this framework: OpenAI, Anthropic, Azure OpenAI, Bedrock, generic HTTP,
-and gRPC — unary and streaming — including how to configure it, run it, read
-the results, and validate them against SLOs.
+with this framework: OpenAI, Anthropic, Azure OpenAI, Bedrock, Google Gemini,
+generic HTTP, gRPC — unary and streaming — plus Ollama and other
+OpenAI-compatible local servers via `provider: openai` + `base_url`.
 
 For RAG pipelines (retrieve → rerank → generate → agent) see
 [rag-performance-testing.md](rag-performance-testing.md) instead; `llm_api`
@@ -87,7 +87,7 @@ datasets:
 targets:
   - name: openai_chat
     layer: llm_api
-    provider: openai            # openai | anthropic | azure | bedrock | http | grpc
+    provider: openai            # openai | anthropic | azure | bedrock | gemini | http | grpc
     base_url: https://api.openai.com/v1   # optional for openai/anthropic; required for azure/bedrock-style endpoints
     api_key_env: OPENAI_API_KEY           # env var NAME, never the key itself
     stream: true                 # SSE streaming -> TTFT/TPOT/ITL/gen-duration metrics
@@ -102,9 +102,10 @@ targets:
     dataset: qa_pairs
     prompts: ["Explain {topic} briefly."]   # optional inline pool
     # provider-specific blocks (all optional):
-    # azure:  { endpoint, api_version, deployment }
-    # aws:    { region, access_key_env, secret_key_env }
-    # grpc:   { proto_path, method, ... }
+    # azure:   { api_version, deployment_field }
+    # aws:     { region, auth, profile }
+    # gemini:  { api_version }   # default v1beta; Vertex AI -> endpoint with {model}
+    # grpc:    { proto_path, service, method, tls, ... }
     # request_template / response_mapping: for provider=http custom APIs
 
 scenarios:
@@ -166,6 +167,20 @@ report:
 - **`provider: http`** targets arbitrary OpenAI-ish endpoints via
   `request_template` (Jinja2 body) + `response_mapping` — subject to the
   SSRF `security.url_allowlist`.
+- **`provider: gemini`** — Google AI Studio (`generativelanguage.googleapis.com`,
+  `x-goog-api-key` auth via `api_key_env: GEMINI_API_KEY`). `params` map onto
+  `generationConfig` (`max_tokens`→`maxOutputTokens`, `top_p`→`topP`, …);
+  `system` becomes `systemInstruction`. Streaming uses
+  `streamGenerateContent?alt=sse` and yields TTFT/TPOT/ITL like other
+  providers. For **Vertex AI**, set `base_url` to
+  `https://<region>-aiplatform.googleapis.com` and `endpoint` to
+  `/v1/projects/<p>/locations/<r>/publishers/google/models/{model}:generateContent`
+  (the `{model}` placeholder is substituted per request). See
+  `configs/gemini_example.yaml`.
+- **Ollama / OpenAI-compatible local servers** — no dedicated provider
+  needed: `provider: openai` + `base_url: http://localhost:11434/v1`
+  (Ollama) or any LiteLLM/LM Studio/llama.cpp server exposing
+  `/v1/chat/completions`. See `configs/ollama_example.yaml`.
 - **`provider: grpc`** needs `grpc.proto_path`/`grpc.method` (or
   `proto-gen` to compile a bundled `.proto`).
 

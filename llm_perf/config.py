@@ -126,6 +126,12 @@ class AwsConfig(BaseModel):
     profile: str | None = None
 
 
+class GeminiConfig(BaseModel):
+    """Google Gemini specifics: API version for the Generative Language API."""
+
+    api_version: str = "v1beta"
+
+
 class GrpcConfig(BaseModel):
     """gRPC target settings: proto, service/method, TLS, metadata, field maps."""
 
@@ -164,13 +170,14 @@ class LlmApiTarget(BaseTarget):
     """Direct vendor-API target (OpenAI/Anthropic/Azure/Bedrock/HTTP/gRPC)."""
 
     layer: Literal["llm_api"] = "llm_api"
-    provider: Literal["openai", "anthropic", "azure", "bedrock", "http", "grpc"]
+    provider: Literal["openai", "anthropic", "azure", "bedrock", "gemini", "http", "grpc"]
     transport: Literal["http", "grpc"] = "http"
     base_url: str | None = None
     endpoint: str | None = None  # http path or grpc method override
     api_key_env: str | None = None
     azure: AzureConfig | None = None
     aws: AwsConfig | None = None
+    gemini: GeminiConfig | None = None
     grpc: GrpcConfig | None = None
     params: dict[str, Any] = Field(default_factory=dict)  # model, max_tokens, ...
     stream: bool = False
@@ -521,7 +528,7 @@ def _infer_layer(t: dict) -> dict:
         t["layer"] = "pipeline"
     elif "python_path" in t or "framework" in t:
         t["layer"] = "app_object"
-    elif t.get("provider") in ("openai", "anthropic", "azure", "bedrock", "grpc") or "params" in t:
+    elif t.get("provider") in ("openai", "anthropic", "azure", "bedrock", "gemini", "grpc") or "params" in t:
         t["layer"] = "llm_api"
     else:
         t["layer"] = "app_endpoint"

@@ -14,6 +14,7 @@ from .anthropic import AnthropicAdapter
 from .azure import AzureAdapter
 from .base import NormalizedResponse, ProviderAdapter, RequestSpec, usage_tokens
 from .bedrock import BedrockAdapter
+from .gemini import GeminiAdapter
 from .grpc import GrpcAdapter
 from .http import HttpAdapter
 from .openai import OpenAIAdapter
@@ -38,6 +39,8 @@ def get_adapter(provider: str, **kwargs) -> ProviderAdapter:
             _ADAPTERS[key] = AnthropicAdapter()
         elif provider == "bedrock":
             _ADAPTERS[key] = BedrockAdapter()
+        elif provider == "gemini":
+            _ADAPTERS[key] = GeminiAdapter()
         elif provider == "grpc":
             _ADAPTERS[key] = GrpcAdapter()
         elif provider == "http":
@@ -114,7 +117,7 @@ def call_llm(spec: RequestSpec) -> NormalizedResponse:
 
     client = HttpClient(timeout_s=spec.timeout_s)
     retry_cfg = spec.extra.get("retry") or {}
-    want_stream = spec.stream and spec.provider in ("openai", "azure", "anthropic")
+    want_stream = spec.stream and spec.provider in ("openai", "azure", "anthropic", "gemini")
     resp, err, retries, timed_out = _post_with_retries(
         client,
         url,
