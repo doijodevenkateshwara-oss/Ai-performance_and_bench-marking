@@ -296,12 +296,13 @@
 
 <h2>Quality</h2>
 <table>
-<tr><th>scenario</th><th>quality score</th><th>evaluated</th><th>sample rate</th><th>95% CI</th><th>context recall</th><th>recall@k</th><th>prec@k</th><th>MRR</th><th>NDCG</th></tr>
+<tr><th>scenario</th><th>quality score</th><th>evaluated</th><th>eval rate</th><th>judge rate</th><th>95% CI</th><th>context recall</th><th>recall@k</th><th>prec@k</th><th>MRR</th><th>NDCG</th></tr>
 {% for s in report.scenarios %}
 <tr><td>{{ s.scenario }}</td>
   <td>{{ "%.3f"|format(s.quality_score_avg) if s.quality_score_avg is defined and s.quality_score_avg is not none else "—" }}</td>
   <td>{{ s.quality_evaluated or 0 }}<span class="meta">/{{ s.quality_eligible or "?" }}</span></td>
   <td>{{ "%.0f"|format(s.quality_sample_rate*100) ~ "%" if s.quality_sample_rate is defined and s.quality_sample_rate is not none else "—" }}</td>
+  <td>{{ "%.0f"|format(s.quality_judge_rate*100) ~ "%" if s.quality_judge_rate is defined and s.quality_judge_rate is not none else "—" }}</td>
   <td>{{ "%.2f–%.2f"|format(s.quality_ci_low, s.quality_ci_high) if s.quality_ci_low is defined and s.quality_ci_low is not none else "—" }}</td>
   <td>{{ "%.3f"|format(s.context_recall_avg) if s.context_recall_avg is defined and s.context_recall_avg is not none else "—" }}</td>
   {% for m in ["recall_at_k","precision_at_k","mrr","ndcg"] %}

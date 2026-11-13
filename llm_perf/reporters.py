@@ -153,12 +153,16 @@ def _enrich_quality_sampling(sc: dict, custom_stats: dict, name: str) -> None:
     sc["quality_eligible"] = eligible
     sc["quality_judged"] = judged
     sc["quality_sample_rate"] = round(evaluated / eligible, 4) if eligible else None
+    # fraction of eligible requests actually sent to the LLM judge — the
+    # configured sample_rate is a target; this is the realized rate
+    sc["quality_judge_rate"] = round(judged / eligible, 4) if eligible else None
     sc["quality_ci_low"] = round(score_avg - half, 4) if score_avg is not None and half is not None else None
     sc["quality_ci_high"] = round(score_avg + half, 4) if score_avg is not None and half is not None else None
     sc["quality"] = {
         "evaluated": evaluated,
         "eligible": eligible,
         "judged": judged,
+        "judge_rate": sc["quality_judge_rate"],
         "requests": requests,
         "sample_rate": sc["quality_sample_rate"],
         "score_avg": score_avg,

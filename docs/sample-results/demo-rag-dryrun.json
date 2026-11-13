@@ -1,0 +1,865 @@
+{
+  "generated_at": "2026-11-13T11:33:58+0530",
+  "duration_s": 35.144362449645996,
+  "totals": {
+    "requests": 165,
+    "failures": 0,
+    "error_rate": 0.0,
+    "peak_users": 3
+  },
+  "scenarios": [
+    {
+      "scenario": "rag_dryrun",
+      "methods": {
+        "TOKENS": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 128.0,
+          "min_ms": 128,
+          "max_ms": 128,
+          "p50": 130,
+          "p90": 130,
+          "p95": 130,
+          "p99": 130
+        },
+        "PROMPT_TOKENS": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 96.0,
+          "min_ms": 96,
+          "max_ms": 96,
+          "p50": 96,
+          "p90": 96,
+          "p95": 96,
+          "p99": 96
+        },
+        "COMPLETION_TOKENS": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 32.0,
+          "min_ms": 32,
+          "max_ms": 32,
+          "p50": 32,
+          "p90": 32,
+          "p95": 32,
+          "p99": 32
+        },
+        "TOKENS_PER_SEC": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 323.0471141777134,
+          "min_ms": 186.68651424353482,
+          "max_ms": 629.4552151703898,
+          "p50": 630,
+          "p90": 630,
+          "p95": 630,
+          "p99": 630
+        },
+        "INPUT_TOKENS_PER_SEC": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 969.1413425331401,
+          "min_ms": 560.0595427306044,
+          "max_ms": 1888.3656455111695,
+          "p50": 1900,
+          "p90": 1900,
+          "p95": 1900,
+          "p99": 1900
+        },
+        "POST": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 101.866631484876,
+          "min_ms": 50.8376119996683,
+          "max_ms": 171.41034599990235,
+          "p50": 170,
+          "p90": 170,
+          "p95": 170,
+          "p99": 170
+        },
+        "QUALITY_SCORE": {
+          "requests": 165,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 920.0,
+          "min_ms": 850.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "RECALL_AT_K": {
+          "requests": 93,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 827.9569892473119,
+          "min_ms": 500.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "PRECISION_AT_K": {
+          "requests": 93,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 333.3333333333329,
+          "min_ms": 333.3333333333333,
+          "max_ms": 333.3333333333333,
+          "p50": 330,
+          "p90": 330,
+          "p95": 330,
+          "p99": 330
+        },
+        "MRR": {
+          "requests": 93,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 770.6093189964157,
+          "min_ms": 333.3333333333333,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "NDCG": {
+          "requests": 93,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 761.4016675725522,
+          "min_ms": 306.5735963827292,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        },
+        "CONTEXT_RECALL": {
+          "requests": 93,
+          "failures": 0,
+          "error_rate": 0.0,
+          "avg_ms": 655.9139784946236,
+          "min_ms": 0.0,
+          "max_ms": 1000.0,
+          "p50": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        }
+      },
+      "requests": 165,
+      "failures": 0,
+      "error_rate": 0.0,
+      "avg_ms": 101.866631484876,
+      "p50_ms": 170,
+      "p90_ms": 170,
+      "p95_ms": 170,
+      "p99_ms": 170,
+      "rps": 4.694920849294338,
+      "cost_usd": 0.006283200000000004,
+      "ttft_p95_ms": null,
+      "ttft_avg_ms": null,
+      "total_tokens": 165,
+      "tokens_per_sec_avg": 323.0471141777134,
+      "input_tokens_per_sec_avg": 969.1413425331402,
+      "tpot_avg_ms": null,
+      "tpot_p95_ms": null,
+      "gen_duration_avg_ms": null,
+      "gen_duration_p95_ms": null,
+      "itl_avg_avg_ms": null,
+      "itl_avg_p95_ms": null,
+      "itl_p95_avg_ms": null,
+      "itl_p95_p95_ms": null,
+      "queue_wait_avg_ms": null,
+      "queue_wait_p95_ms": null,
+      "retries_total": 0.0,
+      "retries_avg": null,
+      "timeouts": 0,
+      "cost_per_success_usd": 3.808000000000003e-05,
+      "quality_score_avg": 0.92,
+      "quality_pass_rate": 1.0,
+      "context_recall_avg": 0.6559,
+      "recall_at_k": 0.828,
+      "recall_at_k_avg": 0.828,
+      "precision_at_k": 0.3333,
+      "precision_at_k_avg": 0.3333,
+      "mrr": 0.7706,
+      "mrr_avg": 0.7706,
+      "ndcg": 0.7614,
+      "ndcg_avg": 0.7614,
+      "quality_evaluated": 165,
+      "quality_eligible": 165,
+      "quality_judged": 88,
+      "quality_sample_rate": 1.0,
+      "quality_judge_rate": 0.5333,
+      "quality_ci_low": 0.9086,
+      "quality_ci_high": 0.9314,
+      "quality": {
+        "evaluated": 165,
+        "eligible": 165,
+        "judged": 88,
+        "judge_rate": 0.5333,
+        "requests": 165,
+        "sample_rate": 1.0,
+        "score_avg": 0.92,
+        "score_ci95": 0.0114,
+        "pass_rate": 1.0,
+        "pass_rate_ci95": 0.0
+      }
+    }
+  ],
+  "thresholds": {
+    "all_passed": true,
+    "failed": [],
+    "not_evaluated": [],
+    "rules": [
+      {
+        "rule": "scenario:rag_dryrun.p95_ms",
+        "metric": "p95_latency_ms",
+        "comparator": "<=",
+        "threshold": 30000.0,
+        "actual": 130,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.max_error_rate",
+        "metric": "error_rate",
+        "comparator": "<=",
+        "threshold": 0.2,
+        "actual": 0.0,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.min_quality_score",
+        "metric": "quality_score",
+        "comparator": ">=",
+        "threshold": 0.3,
+        "actual": 0.92,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.min_context_recall",
+        "metric": "context_recall",
+        "comparator": ">=",
+        "threshold": 0.2,
+        "actual": 0.6559139784946236,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.min_recall_at_k",
+        "metric": "recall_at_k",
+        "comparator": ">=",
+        "threshold": 0.2,
+        "actual": 0.8279569892473119,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.min_mrr",
+        "metric": "mrr",
+        "comparator": ">=",
+        "threshold": 0.2,
+        "actual": 0.7706093189964158,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.stage.retrieve.p95_ms",
+        "metric": "stage.retrieve.p95_ms",
+        "comparator": "<=",
+        "threshold": 2000.0,
+        "actual": 0.3211720004401286,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.stage.rerank.p95_ms",
+        "metric": "stage.rerank.p95_ms",
+        "comparator": "<=",
+        "threshold": 20000.0,
+        "actual": 128.16386600024998,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      },
+      {
+        "rule": "scenario:rag_dryrun.stage.generate.p95_ms",
+        "metric": "stage.generate.p95_ms",
+        "comparator": "<=",
+        "threshold": 20000.0,
+        "actual": 42.704068999228184,
+        "passed": true,
+        "status": "pass",
+        "scope": "scenario"
+      }
+    ]
+  },
+  "manifest": {
+    "run_id": "e2f96ed8-9402-426c-8a44-585f76f3b9e2",
+    "generated_at": "2026-11-13T11:33:58+0530",
+    "framework": {
+      "name": "llm-perf",
+      "version": "0.1.0",
+      "locust": "2.47.0",
+      "python": "3.12.3"
+    },
+    "git": {
+      "commit": "58d7e2ba5307e623ba309024ea99b1502561bc30",
+      "dirty": true,
+      "root": "/home/ubuntu/Desktop/performance-testing-llm-ai"
+    },
+    "config": {
+      "path": "demo/rag_dryrun.yaml",
+      "sha256": "046555f0e3c287c026be7fe5c7869b58923fb4b21447f26365297dcb84e84fb1"
+    },
+    "datasets": {
+      "qa_pairs": {
+        "source": "/home/ubuntu/Desktop/performance-testing-llm-ai/datasets/qa_pairs.jsonl",
+        "sha256": "63acbc4b486fbab22c90e98ec8ffd2b7af4620122f9eb340e509dd978451998a",
+        "bytes": 1278
+      }
+    },
+    "targets": [
+      {
+        "name": "rag_pipeline",
+        "layer": "pipeline",
+        "dataset": "qa_pairs",
+        "llm_refs": [
+          {
+            "stage": "rerank",
+            "provider": "openai",
+            "model": "mock-model",
+            "host": "127.0.0.1:8901"
+          },
+          {
+            "stage": "generate",
+            "provider": "openai",
+            "model": "mock-model",
+            "host": "127.0.0.1:8901"
+          }
+        ]
+      }
+    ],
+    "load": {
+      "profile": null,
+      "users": 3,
+      "spawn_rate": 3.0,
+      "duration": "30s",
+      "run_time": null
+    },
+    "load_generator": {
+      "python": "3.12.3",
+      "python_impl": "CPython",
+      "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+      "cpu_count": 4,
+      "hostname": "ip-172-31-43-166",
+      "mem_total_gb": 15.33
+    },
+    "pricing": {
+      "input_per_1k": 0.00015,
+      "output_per_1k": 0.0006,
+      "currency": "USD",
+      "captured_at": "2026-11-13T11:33:58+0530"
+    }
+  },
+  "run_id": "e2f96ed8-9402-426c-8a44-585f76f3b9e2",
+  "load": {
+    "profile": null,
+    "users": 3,
+    "spawn_rate": 3.0,
+    "duration": "30s",
+    "run_time": null
+  },
+  "phases": [],
+  "stages": [
+    {
+      "scenario": "rag_dryrun",
+      "stage": "retrieve",
+      "count": 165,
+      "avg_ms": 0.2577016909664521,
+      "p50_ms": 0.25599000036891084,
+      "p95_ms": 0.3211720004401286,
+      "max_ms": 0.41045600028155604
+    },
+    {
+      "scenario": "rag_dryrun",
+      "stage": "rerank",
+      "count": 165,
+      "avg_ms": 92.68184727875588,
+      "p50_ms": 87.53005800008395,
+      "p95_ms": 128.16386600024998,
+      "max_ms": 132.0833979998497
+    },
+    {
+      "scenario": "rag_dryrun",
+      "stage": "generate",
+      "count": 165,
+      "avg_ms": 7.301699884848142,
+      "p50_ms": 2.3344999999608262,
+      "p95_ms": 42.704068999228184,
+      "max_ms": 43.84726199987199
+    }
+  ],
+  "composition": {
+    "rag_dryrun": {
+      "requests": 165,
+      "segments": {
+        "generate": {
+          "p50_ms": 2.3344999999608262,
+          "p95_ms": 42.704068999228184,
+          "median_share_pct": 2.46
+        },
+        "rerank": {
+          "p50_ms": 87.53005800008395,
+          "p95_ms": 128.16386600024998,
+          "median_share_pct": 95.52
+        },
+        "retrieve": {
+          "p50_ms": 0.25599000036891084,
+          "p95_ms": 0.3211720004401286,
+          "median_share_pct": 0.26
+        }
+      },
+      "unattributed": {
+        "p50_ms": 1.5644799987057922,
+        "p95_ms": 1.9284940008219564,
+        "median_share_pct": 1.63
+      }
+    }
+  },
+  "cost_breakdown": {
+    "rag_dryrun": {
+      "generation": 0.001386,
+      "reranking": 0.004158,
+      "judge": 0.000739
+    }
+  },
+  "resources": {
+    "loadgen": {
+      "samples": 8,
+      "interval_s": 5.0,
+      "cpu_percent_avg": 38.2,
+      "cpu_percent_max": 52.9,
+      "mem_percent_avg": 37.7,
+      "mem_percent_max": 38.2,
+      "mem_used_mb_max": 6291.6,
+      "scheduler_lag": {
+        "samples": 200,
+        "interval_ms": 50.0,
+        "avg_ms": 0.85,
+        "p50_ms": 0.34,
+        "p95_ms": 1.13,
+        "max_ms": 65.15
+      }
+    }
+  },
+  "analysis": {
+    "executive_summary": {
+      "verdict": "PASS",
+      "requests": 165,
+      "failures": 0,
+      "error_rate": 0.0,
+      "duration_s": 35.144362449645996,
+      "scenarios": 1,
+      "headline_scenario": "rag_dryrun",
+      "headline": {
+        "p95_ms": 170,
+        "ttft_p95_ms": null,
+        "tokens_per_sec_avg": 323.0471141777134,
+        "quality_score_avg": 0.92
+      },
+      "cost_usd": 0.006283,
+      "slo": {
+        "pass": 9,
+        "fail": 0,
+        "not_evaluated": 0,
+        "skip": 0,
+        "all_passed": true
+      },
+      "findings": [
+        "Primary scenario 'rag_dryrun' served 165 requests at p95=170ms.",
+        "Output throughput ~323.0 tok/s (avg).",
+        "Estimated cost $0.0063.",
+        "9 SLO rule(s) passed."
+      ]
+    },
+    "slo": {
+      "pass": 9,
+      "fail": 0,
+      "not_evaluated": 0,
+      "skip": 0,
+      "all_passed": true
+    },
+    "bottlenecks": [
+      {
+        "type": "stage",
+        "severity": "high",
+        "scenario": "rag_dryrun",
+        "detail": "stage 'rerank' median share=96% of e2e (p95=128ms, per-request basis)"
+      }
+    ]
+  },
+  "comparison": {
+    "baseline_generated_at": "2026-11-13T11:32:36+0530",
+    "baseline_profile": null,
+    "provenance": {
+      "drift": [],
+      "comparable": true
+    },
+    "metrics": [
+      {
+        "metric": "error_rate",
+        "label": "error_rate",
+        "delta": null
+      },
+      {
+        "metric": "rps",
+        "label": "requests/s",
+        "delta": {
+          "current": 4.694920849294338,
+          "baseline": 5.06445216606497,
+          "delta": -0.3695313167706322,
+          "delta_pct": -7.2965703822167685,
+          "direction": "worse"
+        }
+      },
+      {
+        "metric": "avg_ms",
+        "label": "avg latency ms",
+        "delta": {
+          "current": 101.866631484876,
+          "baseline": 102.87990737641123,
+          "delta": -1.0132758915352298,
+          "delta_pct": -0.9849113567218845,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "p50_ms",
+        "label": "p50 ms",
+        "delta": {
+          "current": 170.0,
+          "baseline": 170.0,
+          "delta": 0.0,
+          "delta_pct": 0.0,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "p90_ms",
+        "label": "p90 ms",
+        "delta": {
+          "current": 170.0,
+          "baseline": 170.0,
+          "delta": 0.0,
+          "delta_pct": 0.0,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "p95_ms",
+        "label": "p95 ms",
+        "delta": {
+          "current": 170.0,
+          "baseline": 170.0,
+          "delta": 0.0,
+          "delta_pct": 0.0,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "p99_ms",
+        "label": "p99 ms",
+        "delta": {
+          "current": 170.0,
+          "baseline": 170.0,
+          "delta": 0.0,
+          "delta_pct": 0.0,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "ttft_p95_ms",
+        "label": "TTFT p95 ms",
+        "delta": null
+      },
+      {
+        "metric": "tpot_p95_ms",
+        "label": "TPOT p95 ms",
+        "delta": null
+      },
+      {
+        "metric": "itl_p95_ms",
+        "label": "ITL p95 ms",
+        "delta": null
+      },
+      {
+        "metric": "gen_duration_p95_ms",
+        "label": "gen duration p95 ms",
+        "delta": null
+      },
+      {
+        "metric": "queue_wait_p95_ms",
+        "label": "queue wait p95 ms",
+        "delta": null
+      },
+      {
+        "metric": "tokens_per_sec_avg",
+        "label": "tokens/s avg",
+        "delta": {
+          "current": 323.0471141777134,
+          "baseline": 320.0885738529852,
+          "delta": 2.958540324728233,
+          "delta_pct": 0.9242880147565259,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "input_tokens_per_sec_avg",
+        "label": "input tokens/s avg",
+        "delta": {
+          "current": 969.1413425331402,
+          "baseline": 960.2657215589555,
+          "delta": 8.875620974184699,
+          "delta_pct": 0.9242880147565259,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "total_tokens",
+        "label": "total tokens",
+        "delta": {
+          "current": 165,
+          "baseline": 178,
+          "delta": -13,
+          "delta_pct": -7.303370786516854,
+          "direction": null
+        }
+      },
+      {
+        "metric": "quality_score_avg",
+        "label": "quality score",
+        "delta": {
+          "current": 0.92,
+          "baseline": 1.0,
+          "delta": -0.07999999999999996,
+          "delta_pct": -7.9999999999999964,
+          "direction": "worse"
+        }
+      },
+      {
+        "metric": "context_recall_avg",
+        "label": "context recall",
+        "delta": {
+          "current": 0.6559,
+          "baseline": 0.73,
+          "delta": -0.07409999999999994,
+          "delta_pct": -10.150684931506841,
+          "direction": "worse"
+        }
+      },
+      {
+        "metric": "retries_total",
+        "label": "retries",
+        "delta": null
+      },
+      {
+        "metric": "timeouts",
+        "label": "timeouts",
+        "delta": null
+      },
+      {
+        "metric": "cost_usd",
+        "label": "cost USD",
+        "delta": {
+          "current": 0.006283200000000004,
+          "baseline": 0.006804000000000008,
+          "delta": -0.0005208000000000036,
+          "delta_pct": -7.654320987654365,
+          "direction": "better"
+        }
+      },
+      {
+        "metric": "cost_per_success_usd",
+        "label": "cost/success USD",
+        "delta": {
+          "current": 3.808000000000003e-05,
+          "baseline": 3.822471910112364e-05,
+          "delta": -1.4471910112360859e-07,
+          "delta_pct": -0.3786008230453013,
+          "direction": "better"
+        }
+      }
+    ],
+    "per_scenario": [
+      {
+        "scenario": "rag_dryrun",
+        "metrics": {
+          "rps": {
+            "label": "requests/s",
+            "current": 4.694920849294338,
+            "baseline": 5.06445216606497,
+            "delta": -0.3695313167706322,
+            "delta_pct": -7.2965703822167685,
+            "direction": "worse"
+          },
+          "avg_ms": {
+            "label": "avg latency ms",
+            "current": 101.866631484876,
+            "baseline": 102.87990737641123,
+            "delta": -1.0132758915352298,
+            "delta_pct": -0.9849113567218845,
+            "direction": "better"
+          },
+          "p50_ms": {
+            "label": "p50 ms",
+            "current": 170,
+            "baseline": 170,
+            "delta": 0,
+            "delta_pct": 0.0,
+            "direction": "better"
+          },
+          "p90_ms": {
+            "label": "p90 ms",
+            "current": 170,
+            "baseline": 170,
+            "delta": 0,
+            "delta_pct": 0.0,
+            "direction": "better"
+          },
+          "p95_ms": {
+            "label": "p95 ms",
+            "current": 170,
+            "baseline": 170,
+            "delta": 0,
+            "delta_pct": 0.0,
+            "direction": "better"
+          },
+          "p99_ms": {
+            "label": "p99 ms",
+            "current": 170,
+            "baseline": 170,
+            "delta": 0,
+            "delta_pct": 0.0,
+            "direction": "better"
+          },
+          "tokens_per_sec_avg": {
+            "label": "tokens/s avg",
+            "current": 323.0471141777134,
+            "baseline": 320.0885738529852,
+            "delta": 2.958540324728233,
+            "delta_pct": 0.9242880147565259,
+            "direction": "better"
+          },
+          "input_tokens_per_sec_avg": {
+            "label": "input tokens/s avg",
+            "current": 969.1413425331402,
+            "baseline": 960.2657215589555,
+            "delta": 8.875620974184699,
+            "delta_pct": 0.9242880147565259,
+            "direction": "better"
+          },
+          "total_tokens": {
+            "label": "total tokens",
+            "current": 165,
+            "baseline": 178,
+            "delta": -13,
+            "delta_pct": -7.303370786516854,
+            "direction": null
+          },
+          "quality_score_avg": {
+            "label": "quality score",
+            "current": 0.92,
+            "baseline": 1.0,
+            "delta": -0.07999999999999996,
+            "delta_pct": -7.9999999999999964,
+            "direction": "worse"
+          },
+          "context_recall_avg": {
+            "label": "context recall",
+            "current": 0.6559,
+            "baseline": 0.73,
+            "delta": -0.07409999999999994,
+            "delta_pct": -10.150684931506841,
+            "direction": "worse"
+          },
+          "cost_usd": {
+            "label": "cost USD",
+            "current": 0.006283200000000004,
+            "baseline": 0.006804000000000008,
+            "delta": -0.0005208000000000036,
+            "delta_pct": -7.654320987654365,
+            "direction": "better"
+          },
+          "cost_per_success_usd": {
+            "label": "cost/success USD",
+            "current": 3.808000000000003e-05,
+            "baseline": 3.822471910112364e-05,
+            "delta": -1.4471910112360859e-07,
+            "delta_pct": -0.3786008230453013,
+            "direction": "better"
+          }
+        }
+      }
+    ]
+  },
+  "regression": {
+    "checked": true,
+    "regressions": [
+      {
+        "metric": "quality_score_avg",
+        "label": "quality score",
+        "current": 0.92,
+        "baseline": 1.0,
+        "delta_pct": -7.9999999999999964,
+        "allowed_pct": -5.0
+      },
+      {
+        "metric": "context_recall_avg",
+        "label": "context recall",
+        "current": 0.6559,
+        "baseline": 0.73,
+        "delta_pct": -10.150684931506841,
+        "allowed_pct": -5.0
+      },
+      {
+        "metric": "quality_score_avg",
+        "label": "quality score",
+        "scenario": "rag_dryrun",
+        "current": 0.92,
+        "baseline": 1.0,
+        "delta_pct": -7.9999999999999964,
+        "allowed_pct": -5.0
+      },
+      {
+        "metric": "context_recall_avg",
+        "label": "context recall",
+        "scenario": "rag_dryrun",
+        "current": 0.6559,
+        "baseline": 0.73,
+        "delta_pct": -10.150684931506841,
+        "allowed_pct": -5.0
+      }
+    ]
+  }
+}

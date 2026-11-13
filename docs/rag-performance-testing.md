@@ -19,7 +19,7 @@ metrics for every request:
 | End-to-end latency | `p50/p90/p95/p99` per scenario | User-visible response time |
 | `CONTEXT_RECALL` | scenario stats + `min_context_recall` threshold | Fraction of `expected_context` found in retrieved docs — **retrieval quality** |
 | `RECALL_AT_K` / `PRECISION_AT_K` / `MRR` / `NDCG` | scenario stats (`recall_at_k`, `precision_at_k`, `mrr`, `ndcg`) + `min_recall_at_k`/`min_precision_at_k`/`min_mrr`/`min_ndcg` threshold rules | Standard IR metrics over the retrieved ranking. Require relevance judgments on the row: `relevant_ids` (doc ids) or `relevant_texts` (passages); falls back to `expected_context` part-coverage. No judgments → metrics absent (not evaluated), never a misleading 0 |
-| `QUALITY_SCORE` | scenario stats + evaluated/eligible/judged counts, sample rate, 95% CI + `min_quality_score` threshold | Heuristics + optional LLM-judge score — **answer quality**. `quality_evaluated`/`quality_eligible`/`quality_judged` and `quality.sample_rate` show exactly how much was measured |
+| `QUALITY_SCORE` | scenario stats + evaluated/eligible/judged counts, eval & judge rates, 95% CI + `min_quality_score` threshold | Heuristics + optional LLM-judge score — **answer quality**. `quality_evaluated`/`quality_eligible` (heuristics run on every successful response) and `quality_judged`/`quality_judge_rate` (realized LLM-judge sampling) show exactly how much was measured |
 | Token metrics | `PROMPT_TOKENS`, `COMPLETION_TOKENS`, `TOKENS_PER_SEC`, `INPUT_TOKENS_PER_SEC` | Context-window pressure and decode throughput |
 | Cost | `cost_usd`, `cost_per_success_usd`, `cost_breakdown` (when `report.pricing` set) | $ per run / per successful answer, split by call site: `generation`, `reranking`, `embedding`, `agent`, `judge`, `retry`, `unattributed` |
 | Latency composition | `composition` in JSON, stacked-share chart in HTML | Per-request stage shares of e2e (median across requests). **Percentiles are never subtracted** — shares are computed inside each request first, then aggregated |
@@ -260,8 +260,9 @@ runs against different dataset versions are detectable in `comparison`.
 
 ### No-credentials demo
 
-`demo/all_layers.yaml` runs the same pipeline shape against
-`demo/mock_server.py` (OpenAI-compatible mock on `:8901`) — see
+`demo/rag_dryrun.yaml` runs a focused retrieve → rerank → generate pipeline
+against `demo/mock_server.py` (OpenAI-compatible mock on `:8901`) with
+`relevant_ids` judgments, sampled judge, and IR threshold rules — see
 `demo/README.md` for the full reproduce flow.
 
 ## 4. View results
@@ -282,7 +283,8 @@ Reports land in `report.output_dir` as `llm-perf-<timestamp>.{csv,json,html}`.
     "total_tokens": 98400, "tokens_per_sec_avg": 412.5,
     "cost_usd": 0.1482, "cost_per_success_usd": 0.00036,
     "quality_evaluated": 412, "quality_eligible": 412, "quality_judged": 82,
-    "quality_sample_rate": 0.2, "quality": {"score_avg": 0.81, "score_ci95": 0.03, …},
+    "quality_sample_rate": 1.0, "quality_judge_rate": 0.2,
+    "quality": {"score_avg": 0.81, "score_ci95": 0.03, …},
     "recall_at_k": 0.72, "precision_at_k": 0.36, "mrr": 0.68, "ndcg": 0.61
   }],
   "stages": [

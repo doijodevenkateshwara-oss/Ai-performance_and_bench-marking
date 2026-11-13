@@ -96,7 +96,7 @@ All times are milliseconds in reports; seconds internally.
 | `total_tokens` | Sum of prompt + completion tokens | Usage volume |
 | `quality_score_avg` | 0..1 quality score (heuristics + judge) | Correctness/helpfulness under load |
 | `quality_evaluated` / `quality_eligible` / `quality_judged` | Requests quality-scored / eligible / LLM-judge sampled | Sampling transparency — a 0.9 avg over 5 samples ≠ over 5000 |
-| `quality_sample_rate` / `quality_ci_low` / `quality_ci_high` | Effective evaluation rate and 95% CI on the mean score | Statistical confidence in the quality number |
+| `quality_sample_rate` / `quality_judge_rate` / `quality_ci_low` / `quality_ci_high` | Fraction scored at all / realized judge sampling rate / 95% CI on the mean | Statistical confidence in the quality number |
 | `quality_pass_rate` | Fraction of quality checks passed | Binary quality gate |
 | `context_recall_avg` | RAG context recall vs expected context | Retrieval quality |
 | `recall_at_k` / `precision_at_k` / `mrr` / `ndcg` | IR metrics over the retrieved ranking (avg) | Retrieval quality vs relevance judgments (`relevant_ids`/`relevant_texts`/`expected_context`); absent when no judgments exist |

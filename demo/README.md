@@ -13,6 +13,7 @@ metric family **without API keys or external services**. Run artifacts land in
 | `dummy_tools.py` | Python function tools for the agent stage (`echo`, `word_count`) |
 | `dummy_app.py` | In-process app object for the `app_object` layer (`DummyApp.invoke`) |
 | `all_layers.yaml` | One config hitting all four layers + streaming + quality + stages |
+| `rag_dryrun.yaml` | Focused RAG dry run: retrieve → **rerank** → generate, IR metrics via `relevant_ids`, sampled judge, cost breakdown |
 | `thresholds_security.yaml` | Three-state thresholds (pass/fail/not_evaluated) + SSRF allowlist demo |
 
 ## Run it
@@ -36,6 +37,10 @@ LLM_PERF_CONFIG=demo/.llm_perf_effective_all_layers.yaml \
 
 LLM_PERF_CONFIG=demo/.llm_perf_effective_thresholds_security.yaml \
   locust -f locustfile.py --headless -u 4 -r 4 -t 30s   # exits 1: FAIL rule
+
+# focused RAG dry run (retrieve + rerank + generate, IR metrics, judge sampling)
+LLM_PERF_CONFIG=demo/rag_dryrun.yaml \
+  locust -f locustfile.py --headless -u 3 -r 3 -t 35s
 ```
 
 > `llm-perf run -c demo/all_layers.yaml --headless` hits a known
@@ -48,11 +53,25 @@ LLM_PERF_CONFIG=demo/.llm_perf_effective_thresholds_security.yaml \
 
 - `llm_api` unary + streaming (TTFT/TPOT/ITL/GEN_DURATION/tokens-per-sec)
 - `pipeline` RAG: retrieve → generate with per-stage p95 metrics + CONTEXT_RECALL
+- Per-request latency `composition` (median stage shares of e2e — never p95 subtraction)
+- `cost_breakdown` by call site (generation / reranking / agent / judge / unattributed)
+- IR metrics `recall_at_k`/`precision_at_k`/`mrr`/`ndcg` on rows with relevance judgments
 - `pipeline` agent: tool-call loop (http `/search` + python `echo`), AGENT_STEPS/TOOL_CALLS/SUCCESS stats
 - `app_endpoint` HTTP with Jinja2 request template + response mapping
 - `app_object` in-process generic-framework call
 - Quality: heuristics + LLM-judge (mock returns a parseable score) + RAG recall
 - OTel spans exported to the local collector when `docker compose up -d` is running
+
+**`rag_dryrun.yaml`** — ~165 requests, exit 0. Demonstrates the measurement
+fixes on a real RAG pipeline:
+
+- `retrieve` (json store) → `rerank` (pointwise LLM, mock returns "8") → `generate`
+- Composition shows **rerank ≈ 96% of median e2e share** — 3 pointwise LLM
+  calls per request dominate; `cost_breakdown` agrees (reranking > generation > judge)
+- `relevant_ids` on 3 of 5 dataset rows → `recall_at_k`/`mrr`/`ndcg` populated;
+  rows without judgments contribute no IR samples (not fake zeroes)
+- Judge `sample_rate: 0.5` → `quality_judge_rate ≈ 0.53`, `quality_evaluated`
+  = all requests (heuristics always run), 95% CI on the mean score
 
 **`thresholds_security.yaml`** — exit 1, all three rule states in one report:
 
@@ -69,7 +88,7 @@ LLM_PERF_CONFIG=demo/.llm_perf_effective_thresholds_security.yaml \
 | Streaming | SSE chunks, TTFT, TPOT, ITL, token usage |
 | Metrics | latency percentiles, token accounting, stage metrics, agent stats |
 | Workloads | smoke profile, ramp_up/steady/ramp_down phases, per-scenario weights |
-| Pipelines | RAG retrieve→generate, agent tool loop |
+| Pipelines | RAG retrieve→rerank→generate, agent tool loop, per-stage + composition metrics |
 | Agents | http + function tools, iteration/loop caps |
 | Security | URL allowlist blocking (SSRF), untrusted-config audit warnings |
 | Regression/thresholds | pass/fail/not_evaluated states, nonzero CI exit |

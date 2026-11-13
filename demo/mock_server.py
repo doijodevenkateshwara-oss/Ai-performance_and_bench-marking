@@ -55,9 +55,12 @@ def _chat_response(req: dict) -> dict:
             "usage": {"prompt_tokens": 42, "completion_tokens": 12, "total_tokens": 54},
         }
 
-    if "Score the response quality" in str(last_user) or "rubric" in str(last_user).lower():
-        # LLM-as-judge call: return a bare numeric score the judge can parse
-        content = "4"
+    if "Rate the relevance" in str(last_user):
+        # rerank stage: return a high numeric score the parser can use
+        content = "8"
+    elif "Score the response quality" in str(last_user) or "rubric" in str(last_user).lower():
+        # LLM-as-judge call: return parseable JSON score (scale 1-5 -> 0.75 norm)
+        content = '{"score": 4, "reason": "mock judge: adequate"}'
     else:
         content = f"mock answer ({len(str(last_user))} chars prompt)"
     return {
