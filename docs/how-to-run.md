@@ -95,6 +95,34 @@ llm-perf run -c configs/my_stack.yaml --layers llm_api,pipeline --headless
 llm-perf run -c configs/my_stack.yaml --scenarios rag_load --headless
 ```
 
+### Resilience validation
+
+Resilience uses the normal run command; `fault_injection` creates the failure
+window and thresholds assert the observed retry/breaker/fallback behavior:
+
+```bash
+llm-perf validate -c configs/rag_resilience.yaml --skip-connectivity
+llm-perf run -c configs/rag_resilience.yaml --headless
+```
+
+See [resilience.md](resilience.md) for supported retry classes, breaker states,
+fallback types, fault windows, metrics, and black-box limitations.
+
+### Availability SLO validation
+
+Use `min_availability`, `min_functional_availability`, and
+`min_non_degraded_availability` threshold rules to distinguish request success,
+usable output, and primary-path completion. Reports include whole-run rates and
+per-phase `slo_windows` when the workload has phases.
+
+```bash
+llm-perf run -c configs/rag_resilience.yaml --headless
+# exits non-zero when thresholds.on_fail: fail and an SLO is breached
+```
+
+See [slo.md](slo.md) for metric definitions, configuration, report fields, and
+SLA boundaries.
+
 ### Distributed run
 
 ```bash
@@ -108,6 +136,10 @@ llm-perf run -c configs/openai_example.yaml --headless --workers
 ## Common CLI commands
 
 ```bash
+# benchmark bounded configuration candidates and write optimized.yaml
+llm-perf optimize -c configs/my_pipeline.yaml --dry-run
+llm-perf optimize -c configs/my_pipeline.yaml --trials 8
+
 # inspect datasets
 llm-perf dataset list -c configs/openai_example.yaml
 llm-perf dataset show qa_pairs -c configs/openai_example.yaml

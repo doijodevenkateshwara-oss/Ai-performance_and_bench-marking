@@ -84,6 +84,9 @@ _CUSTOM_P95_RULES = [
 ]
 _GAUGE_RULES = [
     ("max_error_rate", "error_rate", "<="),
+    ("min_availability", "availability", ">="),
+    ("min_functional_availability", "functional_availability", ">="),
+    ("min_non_degraded_availability", "non_degraded_availability", ">="),
     ("max_retries", "retries", "<="),
     ("max_timeouts", "timeouts", "<="),
     ("min_throughput_rps", "throughput_rps", ">="),
@@ -96,6 +99,11 @@ _GAUGE_RULES = [
     ("min_ndcg", "ndcg", ">="),
     ("max_cost_usd", "cost_usd", "<="),
     ("max_cost_per_success_usd", "cost_per_success_usd", "<="),
+    ("max_retry_exhausted", "retry_exhausted", "<="),
+    ("max_circuit_open_events", "circuit_open_events", "<="),
+    ("max_circuit_rejections", "circuit_rejections", "<="),
+    ("min_fallback_success_rate", "fallback_success_rate", ">="),
+    ("max_degraded_rate", "degraded_rate", "<="),
     ("min_agent_success_rate", "agent_success_rate", ">="),
     ("max_agent_tool_error_rate", "agent_tool_error_rate", "<="),
     ("max_agent_loops_avg", "agent_loops_avg", "<="),
@@ -291,6 +299,92 @@ def _snap_sum(custom_stats, scenario, metric):
     return se["sum"] if se else None
 
 
+def _snap_avg_all(custom_stats, metric):
+    """Weighted average of one metric across all scenario sample groups."""
+    if not custom_stats:
+        return None
+    total = count = 0.0
+    for (_, m), se in custom_stats.items():
+        if m != metric:
+            continue
+        total += se.get("sum") or 0.0
+        count += se.get("count") or 0.0
+    return total / count if count else None
+
+
+def _resilience_gauge_value(metric, stats, scenario, custom_stats):
+    """Compute resilience-specific threshold values from exact metric samples."""
+    if metric == "retry_exhausted":
+        v = _snap_sum(custom_stats, scenario, "retry_exhausted")
+        return v if v is not None else 0.0
+    if metric == "circuit_open_events":
+        v = _snap_sum(custom_stats, scenario, "circuit_open")
+        return v if v is not None else 0.0
+    if metric == "circuit_rejections":
+        v = _snap_sum(custom_stats, scenario, "circuit_rejected")
+        return v if v is not None else 0.0
+    if metric == "fallback_success_rate":
+        return _snap_avg(custom_stats, scenario, "fallback_success")
+    if metric == "degraded_rate":
+        degraded = _snap_sum(custom_stats, scenario, "degraded")
+        if degraded is None:
+            return None
+        reqs = sum(e.num_requests for e in _request_entries(stats, scenario))
+        return degraded / reqs if reqs else None
+    return None
+
+
+def _live_availability(metric, scenario):
+    """Return uncapped request-outcome SLO rate, or None outside a live run."""
+    try:
+        from .metrics import availability_summary
+    except Exception:
+        return None
+    data = availability_summary(scenario)
+    if scenario:
+        return (data.get(scenario) or {}).get(metric)
+    requests = sum((values.get("requests") or 0) for values in data.values())
+    if not requests:
+        return None
+    return (
+        sum((values.get(metric) or 0.0) * (values.get("requests") or 0) for values in data.values())
+        / requests
+    )
+
+
+def _availability_gauge_value(metric, stats, scenario, custom_stats) -> tuple[bool, float | None]:
+    """Compute request/functional/non-degraded availability metrics."""
+    if metric == "error_rate":
+        fails = reqs = 0
+        for e in _request_entries(stats, scenario):
+            reqs += e.num_requests
+            fails += e.num_failures
+        return True, fails / reqs if reqs else 0.0
+    if metric == "availability":
+        v = _live_availability(metric, scenario)
+        if v is None:
+            v = (
+                _snap_avg(custom_stats, scenario, "availability")
+                if scenario
+                else _snap_avg_all(custom_stats, "availability")
+            )
+        if v is not None:
+            return True, v
+        fails = reqs = 0
+        for e in _request_entries(stats, scenario):
+            reqs += e.num_requests
+            fails += e.num_failures
+        return True, (reqs - fails) / reqs if reqs else None
+    if metric in ("functional_availability", "non_degraded_availability"):
+        v = _live_availability(metric, scenario)
+        if v is not None:
+            return True, v
+        if scenario:
+            return True, _snap_avg(custom_stats, scenario, metric)
+        return True, _snap_avg_all(custom_stats, metric)
+    return False, None
+
+
 def _gauge_value(
     metric,
     stats,
@@ -304,16 +398,9 @@ def _gauge_value(
 ):
     """Compute the actual value for one gauge-style threshold metric."""
     try:
-        if metric == "error_rate":
-            # scope the denominator: scenario rules must use that scenario's
-            # request count, not the global total
-            fails = reqs = 0
-            for e in _request_entries(stats, scenario):
-                reqs += e.num_requests
-                fails += e.num_failures
-            if reqs <= 0:
-                return 0.0
-            return fails / reqs
+        handled, value = _availability_gauge_value(metric, stats, scenario, custom_stats)
+        if handled:
+            return value
         if metric == "throughput_rps":
             reqs = (
                 total_requests
@@ -375,6 +462,14 @@ def _gauge_value(
             return (te or 0.0) / tc
         if metric == "agent_loops_avg":
             return _snap_avg(custom_stats, scenario, "agent_loops")
+        if metric in (
+            "retry_exhausted",
+            "circuit_open_events",
+            "circuit_rejections",
+            "fallback_success_rate",
+            "degraded_rate",
+        ):
+            return _resilience_gauge_value(metric, stats, scenario, custom_stats)
         if metric == "retries":
             e = _entry_for(stats, scenario or "", "RETRIES") if scenario else None
             if e is None or e.num_requests == 0:

@@ -179,6 +179,7 @@ def identify_bottlenecks(report: dict) -> list[dict]:
                             "type": "stage",
                             "severity": "high" if share > 70 else "medium",
                             "scenario": name,
+                            "stage": st_name,
                             "detail": f"stage '{st_name}' median share={share:.0f}% of e2e "
                             f"(p95={p95:.0f}ms, per-request basis)",
                         }
@@ -197,6 +198,7 @@ def identify_bottlenecks(report: dict) -> list[dict]:
                         "type": "stage",
                         "severity": "high" if share > 70 else "medium",
                         "scenario": name,
+                        "stage": st.get("stage"),
                         "detail": f"stage '{st.get('stage')}' p95={p95:.0f}ms "
                         f"(~{share:.0f}% of e2e p95, approx)",
                     }
@@ -265,6 +267,100 @@ def identify_bottlenecks(report: dict) -> list[dict]:
             seen.add(k)
             out.append(f)
     return out[:20]
+
+
+_STAGE_RECOMMENDATIONS = {
+    "embed": (
+        "reduce_embedding_latency",
+        ["embedding.model", "embedding.params.*"],
+    ),
+    "retrieve": (
+        "reduce_retrieval_latency",
+        ["top_k", "vector_store tuning in the backing service"],
+    ),
+    "rerank": (
+        "reduce_reranking_work",
+        ["method", "llm.model", "llm.params.*"],
+    ),
+    "generate": (
+        "reduce_generation_latency",
+        ["llm.model", "llm.params.max_tokens", "template"],
+    ),
+    "agent_step": (
+        "reduce_agent_model_iterations",
+        ["max_iterations", "llm.model", "llm.params.max_tokens"],
+    ),
+    "agent_tool": (
+        "reduce_agent_tool_latency",
+        ["tool service latency", "tool timeouts", "loop_repeat_threshold"],
+    ),
+}
+
+
+def optimization_recommendations(report: dict, bottlenecks: list[dict] | None = None) -> list[dict]:
+    """Convert measured bottlenecks into structured optimization guidance."""
+    findings = bottlenecks if bottlenecks is not None else identify_bottlenecks(report)
+    recs: list[dict] = []
+    for finding in findings:
+        ftype = finding.get("type")
+        if ftype == "stage":
+            stage = finding.get("stage")
+            action, knobs = _STAGE_RECOMMENDATIONS.get(
+                stage,
+                ("inspect_stage_latency", ["stage implementation", "stage timeout"]),
+            )
+            rec = {
+                "type": "parameter_tuning",
+                "action": action,
+                "scenario": finding.get("scenario"),
+                "stage": stage,
+                "parameters": knobs,
+                "reason": finding.get("detail"),
+            }
+        elif ftype == "ttft_bound":
+            rec = {
+                "type": "prefill_or_queueing",
+                "action": "reduce_prefill_latency",
+                "scenario": finding.get("scenario"),
+                "parameters": ["params.model", "prompt size", "provider-side caching"],
+                "reason": finding.get("detail"),
+            }
+        elif ftype == "decode_bound":
+            rec = {
+                "type": "decode",
+                "action": "reduce_generation_output_time",
+                "scenario": finding.get("scenario"),
+                "parameters": ["params.max_tokens", "params.model", "stream_mode"],
+                "reason": finding.get("detail"),
+            }
+        elif ftype == "queueing":
+            rec = {
+                "type": "load_generator",
+                "action": "increase_load_generator_capacity",
+                "scenario": finding.get("scenario"),
+                "parameters": ["distributed workers", "fewer users per worker"],
+                "reason": finding.get("detail"),
+            }
+        elif ftype == "reliability":
+            rec = {
+                "type": "reliability",
+                "action": "reduce_retry_and_timeout_overhead",
+                "scenario": finding.get("scenario"),
+                "parameters": ["timeout_s", "provider/model stability", "rate limits"],
+                "reason": finding.get("detail"),
+            }
+        else:
+            continue
+        rec["severity"] = finding.get("severity")
+        recs.append(rec)
+
+    seen, out = set(), []
+    for rec in recs:
+        key = (rec["type"], rec.get("scenario"), rec.get("stage"), rec["action"])
+        if key not in seen:
+            seen.add(key)
+            out.append(rec)
+    return out
 
 
 def compare_runs(current: dict, baseline: dict | None) -> dict | None:

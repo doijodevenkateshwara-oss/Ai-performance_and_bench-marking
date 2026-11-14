@@ -85,6 +85,38 @@ def _instruments():
         "agent_task_success": m.create_counter(
             "llm_perf.agent.task_success", description="Agent task success/failure counts"
         ),
+        "request_availability": m.create_counter(
+            "llm_perf.request.availability",
+            description="Request availability outcomes by availability kind and result",
+        ),
+        "retry_exhausted": m.create_counter(
+            "llm_perf.retry.exhausted", description="Calls that consumed the configured retry budget"
+        ),
+        "circuit_open": m.create_counter(
+            "llm_perf.circuit.open", description="Circuit-breaker open transitions"
+        ),
+        "circuit_half_open": m.create_counter(
+            "llm_perf.circuit.half_open", description="Circuit-breaker half-open transitions"
+        ),
+        "circuit_closed": m.create_counter(
+            "llm_perf.circuit.closed", description="Circuit-breaker close transitions"
+        ),
+        "circuit_rejected": m.create_counter(
+            "llm_perf.circuit.rejected", description="Calls rejected by an open/half-open breaker"
+        ),
+        "circuit_state": m.create_gauge(
+            "llm_perf.circuit.state", unit="1", description="0 closed, 1 half-open, 2 open"
+        ),
+        "fallback_invocations": m.create_counter(
+            "llm_perf.fallback.invocations", description="Fallback executions"
+        ),
+        "fallback_success": m.create_counter("llm_perf.fallback.success", description="Fallback outcomes"),
+        "degraded_requests": m.create_counter(
+            "llm_perf.requests.degraded", description="Dependency calls completed through fallback"
+        ),
+        "fault_injections": m.create_counter(
+            "llm_perf.fault_injections", description="Configured resilience-test faults injected"
+        ),
     }
 
 

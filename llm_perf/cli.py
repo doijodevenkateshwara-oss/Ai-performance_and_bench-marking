@@ -195,6 +195,59 @@ def run(
         raise typer.Exit(code or 0) from e
 
 
+@app.command("optimize")
+def optimize_cmd(
+    config: str = typer.Option(..., "-c", "--config"),
+    trials: int | None = typer.Option(None, "--trials", help="maximum trials including baseline"),
+    strategy: str | None = typer.Option(None, "--strategy", help="grid|random"),
+    objective: str | None = typer.Option(
+        None,
+        "--objective",
+        help="avg_ms|p50_ms|p90_ms|p95_ms|p99_ms|cost_usd|cost_per_success_usd|agent_steps_avg|agent_tool_calls_avg|agent_loops_avg",
+    ),
+    output_dir: str | None = typer.Option(None, "--output-dir"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="list candidates without executing runs"),
+    skip_connectivity: bool = typer.Option(False, "--skip-connectivity"),
+):
+    """Run bounded config variants and select the fastest feasible candidate."""
+    cfg = _load_or_exit(config, skip_connectivity or dry_run)
+    opt = cfg.optimization
+    if trials is not None:
+        opt.max_trials = trials
+    if strategy:
+        opt.strategy = strategy  # type: ignore[assignment]
+    if objective:
+        opt.objective = objective  # type: ignore[assignment]
+    cfg = cfg.model_copy(deep=True)
+    cfg.optimization.enabled = True
+    try:
+        cfg = PerfConfig.model_validate(cfg.model_dump(mode="python", by_alias=True))
+    except Exception as e:
+        console.print(f"[red]Optimization error:[/red] {e}")
+        raise typer.Exit(2) from e
+
+    from .optimizer import candidate_configs, run_optimization
+
+    try:
+        if dry_run:
+            candidates = candidate_configs(cfg)
+            for cand in candidates:
+                console.print(f"[cyan]{cand.index}[/cyan] {cand.label}")
+            return
+        result = run_optimization(config, config=cfg, output_dir=output_dir)
+    except Exception as e:
+        console.print(f"[red]Optimization error:[/red] {e}")
+        raise typer.Exit(2) from e
+
+    console.print(f"[green]Optimization report:[/green] {result['report_path']}")
+    winner = result.get("winner")
+    if not winner:
+        console.print("[red]No feasible optimization candidate[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]Winner:[/green] {winner['label']} " f"{result['objective']}={winner['score']}")
+    console.print(f"[green]Optimized config:[/green] {result['optimized_config']}")
+
+
 @app.command("proto-gen")
 def proto_gen_cmd(proto: str = typer.Option(..., "-p", "--proto")):
     """Pre-compile a .proto file for gRPC targets."""

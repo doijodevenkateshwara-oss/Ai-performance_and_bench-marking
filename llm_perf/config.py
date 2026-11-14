@@ -157,6 +157,89 @@ class GrpcConfig(BaseModel):
     response_fields: dict[str, str] = Field(default_factory=dict)
 
 
+class RetryPolicy(BaseModel):
+    """Bounded retry policy applied at one dependency boundary."""
+
+    attempts: int = Field(default=0, ge=0)
+    backoff_s: float = Field(default=0.5, ge=0.0)
+    max_backoff_s: float = Field(default=10.0, ge=0.0)
+    jitter_s: float = Field(default=0.25, ge=0.0)
+    retry_on: list[
+        Literal[
+            "timeout",
+            "connect",
+            "http_4xx",
+            "http_5xx",
+            "llm_error",
+            "empty_response",
+            "exception",
+        ]
+    ] = Field(default_factory=lambda: ["timeout", "connect", "http_5xx"])
+
+
+class CircuitBreakerPolicy(BaseModel):
+    """Closed/open/half-open circuit-breaker policy for one call site."""
+
+    enabled: bool = False
+    failure_threshold: int = Field(default=3, ge=1)
+    window_s: float = Field(default=30.0, gt=0.0)
+    open_duration_s: float = Field(default=30.0, gt=0.0)
+    half_open_calls: int = Field(default=1, ge=1)
+    successes_to_close: int = Field(default=1, ge=1)
+
+
+class FallbackPolicy(BaseModel):
+    """Bounded fallback applied after retries fail or a circuit rejects a call."""
+
+    type: Literal[
+        "none",
+        "static_response",
+        "static_context",
+        "empty_context",
+        "passthrough",
+        "alternate_llm",
+        "alternate_tool",
+        "alternate_endpoint",
+    ] = "none"
+    response: str | None = None
+    context: list[str] = Field(default_factory=list)
+    llm: dict[str, Any] | None = None
+    tool: dict[str, Any] | None = None
+    endpoint: str | None = None
+    mark_degraded: bool = True
+
+
+class FaultInjectionPolicy(BaseModel):
+    """Deterministic/probabilistic fault window for resilience validation."""
+
+    enabled: bool = False
+    fault: Literal[
+        "none",
+        "timeout",
+        "connect",
+        "http_500",
+        "http_503",
+        "exception",
+        "empty_response",
+        "llm_error",
+        "latency",
+    ] = "none"
+    probability: float = Field(default=1.0, ge=0.0, le=1.0)
+    after_s: float = Field(default=0.0, ge=0.0)
+    duration_s: float | None = Field(default=None, gt=0.0)
+    latency_s: float = Field(default=0.0, ge=0.0)
+    seed: int | None = None
+
+
+class ResilienceConfig(BaseModel):
+    """Retry, circuit-breaker, fallback, and fault-injection policies."""
+
+    retry: RetryPolicy = Field(default_factory=RetryPolicy)
+    circuit_breaker: CircuitBreakerPolicy = Field(default_factory=CircuitBreakerPolicy)
+    fallback: FallbackPolicy = Field(default_factory=FallbackPolicy)
+    fault_injection: FaultInjectionPolicy = Field(default_factory=FaultInjectionPolicy)
+
+
 class BaseTarget(BaseModel):
     """Fields shared by every target type (name, weight, timeouts, retries, vars)."""
 
@@ -167,6 +250,7 @@ class BaseTarget(BaseModel):
     timeout_s: float = 120.0
     retries: int = Field(default=0, ge=0)  # retry attempts on timeout/connect/5xx (http providers)
     retry_backoff_s: float = Field(default=0.5, ge=0.0)
+    resilience: ResilienceConfig = Field(default_factory=ResilienceConfig)
     tags: dict[str, str] = Field(default_factory=dict)
     vars: dict[str, list[Any]] = Field(default_factory=dict)  # {var} template pools
 
@@ -252,6 +336,7 @@ class PipelineStage(BaseModel):
     loop_repeat_threshold: int = Field(default=3, ge=1)  # identical tool+args calls -> loop flag
     success: AgentSuccessConfig | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
+    resilience: ResilienceConfig | None = None
 
     model_config = {"extra": "allow"}
 
@@ -408,6 +493,9 @@ class ThresholdRule(BaseModel):
     gen_p95_ms: float | None = None
     queue_p95_ms: float | None = None
     max_error_rate: float | None = None
+    min_availability: float | None = None
+    min_functional_availability: float | None = None
+    min_non_degraded_availability: float | None = None
     max_retries: float | None = None
     max_timeouts: float | None = None
     min_throughput_rps: float | None = None
@@ -422,6 +510,12 @@ class ThresholdRule(BaseModel):
     min_ndcg: float | None = None
     max_cost_usd: float | None = None
     max_cost_per_success_usd: float | None = None
+    # resilience rules
+    max_retry_exhausted: float | None = None
+    max_circuit_open_events: float | None = None
+    max_circuit_rejections: float | None = None
+    min_fallback_success_rate: float | None = None
+    max_degraded_rate: float | None = None
     # agent-stage rules
     min_agent_success_rate: float | None = None
     max_agent_tool_error_rate: float | None = None
@@ -498,6 +592,48 @@ class ReportConfig(BaseModel):
     resource_warn: ResourceWarnConfig = Field(default_factory=ResourceWarnConfig)
 
 
+class OptimizationParameter(BaseModel):
+    """One bounded parameter to vary during optimization trials."""
+
+    target: str
+    stage_index: int | None = Field(default=None, ge=0)
+    path: str
+    values: list[Any] = Field(min_length=1)
+
+    @field_validator("path")
+    @classmethod
+    def _path_nonempty(cls, v: str) -> str:
+        """Reject empty mutation paths."""
+        if not v or not v.strip():
+            raise ValueError("optimization parameter path must not be empty")
+        return v.strip()
+
+
+class OptimizationConfig(BaseModel):
+    """Controlled experiment settings for benchmark-driven optimization."""
+
+    enabled: bool = False
+    scenario: str | None = None
+    objective: Literal[
+        "avg_ms",
+        "p50_ms",
+        "p90_ms",
+        "p95_ms",
+        "p99_ms",
+        "cost_usd",
+        "cost_per_success_usd",
+        "agent_steps_avg",
+        "agent_tool_calls_avg",
+        "agent_loops_avg",
+    ] = "p95_ms"
+    strategy: Literal["grid", "random"] = "grid"
+    max_trials: int = Field(default=10, ge=1)
+    min_requests: int = Field(default=1, ge=1)
+    seed: int | None = None
+    constraints: ThresholdRule | None = None
+    parameters: list[OptimizationParameter] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Root config
 # ---------------------------------------------------------------------------
@@ -514,6 +650,7 @@ class PerfConfig(BaseModel):
     load: LoadConfig = Field(default_factory=LoadConfig)
     thresholds: ThresholdsConfig | None = None
     report: ReportConfig = Field(default_factory=ReportConfig)
+    optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
 
     @model_validator(mode="after")
     def _cross_check(self):

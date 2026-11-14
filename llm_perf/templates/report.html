@@ -71,6 +71,9 @@
 {% set h = es.headline or {} %}
   <div class="card"><div class="k">Requests</div><div class="v">{{ es.requests or report.totals.requests or 0 }}</div></div>
   <div class="card"><div class="k">Error rate</div><div class="v">{{ "%.2f"|format(((es.error_rate if es.error_rate is not none else report.totals.error_rate) or 0)*100) }}%</div></div>
+  <div class="card"><div class="k">Availability</div><div class="v">{{ "%.2f"|format((report.totals.availability or 0)*100) }}%</div></div>
+  <div class="card"><div class="k">Functional</div><div class="v">{{ "%.2f"|format((report.totals.functional_availability or 0)*100) }}%</div></div>
+  <div class="card"><div class="k">Non-degraded</div><div class="v">{{ "%.2f"|format((report.totals.non_degraded_availability or 0)*100) }}%</div></div>
   <div class="card"><div class="k">p95 latency</div><div class="v">{{ "%.0f"|format(h.p95_ms) ~ "ms" if h.p95_ms is defined and h.p95_ms is not none else "—" }}</div></div>
   <div class="card"><div class="k">TTFT p95</div><div class="v">{{ "%.0f"|format(h.ttft_p95_ms) ~ "ms" if h.ttft_p95_ms is defined and h.ttft_p95_ms is not none else "—" }}</div></div>
   <div class="card"><div class="k">Tokens/s</div><div class="v">{{ "%.1f"|format(h.tokens_per_sec_avg or 0) if h.tokens_per_sec_avg is defined else "—" }}</div></div>
@@ -89,15 +92,36 @@
 </table>
 {% endif %}
 
+{% if report.slo_windows %}
+<h2>SLO windows</h2>
+<table>
+<tr><th>phase</th><th>scenario</th><th>requests</th><th>availability</th><th>functional</th><th>non-degraded</th><th>p50</th><th>p95</th><th>p99</th></tr>
+{% for w in report.slo_windows %}
+  {% for sc, m in (w.scenarios or {}).items()|sort %}
+  <tr><td>{{ w.label }}</td><td>{{ sc }}</td><td>{{ m.requests }}</td>
+    <td>{{ "%.2f"|format((m.availability or 0)*100) }}%</td>
+    <td>{{ "%.2f"|format((m.functional_availability or 0)*100) }}%</td>
+    <td>{{ "%.2f"|format((m.non_degraded_availability or 0)*100) }}%</td>
+    <td>{{ "%.0f"|format(m.p50_ms or 0) if m.p50_ms is not none else "—" }}</td>
+    <td>{{ "%.0f"|format(m.p95_ms or 0) if m.p95_ms is not none else "—" }}</td>
+    <td>{{ "%.0f"|format(m.p99_ms or 0) if m.p99_ms is not none else "—" }}</td></tr>
+  {% endfor %}
+{% endfor %}
+</table>
+{% endif %}
+
 <h2>Per-scenario performance</h2>
 <table>
-<tr><th>scenario</th><th>requests</th><th>fail%</th><th>avg</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>rps</th>
+<tr><th>scenario</th><th>requests</th><th>fail%</th><th>avail%</th><th>functional%</th><th>non-deg%</th><th>avg</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>rps</th>
 <th>TTFT p95</th><th>TPOT p95</th><th>ITL p95</th><th>gen p95</th><th>queue p95</th>
 <th>in tok/s</th><th>out tok/s</th><th>retries</th><th>timeouts</th><th>tokens</th><th>cost</th><th>$/success</th></tr>
 {% for s in report.scenarios %}
 <tr>
   <td>{{ s.scenario }}</td><td>{{ s.requests }}</td>
   <td>{{ "%.2f"|format((s.error_rate or 0)*100) }}</td>
+  <td>{{ "%.2f"|format((s.availability or 0)*100) if s.availability is not none else "—" }}</td>
+  <td>{{ "%.2f"|format((s.functional_availability or 0)*100) if s.functional_availability is defined and s.functional_availability is not none else "—" }}</td>
+  <td>{{ "%.2f"|format((s.non_degraded_availability or 0)*100) if s.non_degraded_availability is defined and s.non_degraded_availability is not none else "—" }}</td>
   <td>{{ "%.0f"|format(s.avg_ms or 0) }}</td>
   <td>{{ "%.0f"|format(s.p50_ms or 0) }}</td><td>{{ "%.0f"|format(s.p90_ms or 0) }}</td>
   <td>{{ "%.0f"|format(s.p95_ms or 0) }}</td><td>{{ "%.0f"|format(s.p99_ms or 0) }}</td>
@@ -117,6 +141,48 @@
 {% endfor %}
 </table>
 <p class="meta">TTFT = time to first token · TPOT = time per output token · ITL = inter-token latency · gen = first→last token (decode phase)</p>
+
+{% set res_any = namespace(v=false) %}
+{% for s in report.scenarios %}
+  {% if s.retry_exhausted_total is defined and s.retry_exhausted_total is not none %}{% set res_any.v = true %}{% endif %}
+  {% if s.circuit_open_total is defined and s.circuit_open_total is not none %}{% set res_any.v = true %}{% endif %}
+  {% if s.fallback_invocations_total is defined and s.fallback_invocations_total is not none %}{% set res_any.v = true %}{% endif %}
+  {% if s.fault_injections_total is defined and s.fault_injections_total is not none %}{% set res_any.v = true %}{% endif %}
+{% endfor %}
+{% if res_any.v %}
+<h2>Resilience</h2>
+<table>
+<tr><th>scenario</th><th>retry exhausted</th><th>circuit opens</th><th>circuit rejections</th><th>fallback calls</th><th>fallback success</th><th>degraded rate</th><th>faults</th></tr>
+{% for s in report.scenarios %}
+<tr><td>{{ s.scenario }}</td>
+  <td>{{ s.retry_exhausted_total or 0 }}</td>
+  <td>{{ s.circuit_open_total or 0 }}</td>
+  <td>{{ s.circuit_rejections_total or 0 }}</td>
+  <td>{{ s.fallback_invocations_total or 0 }}</td>
+  <td>{{ "%.1f"|format((s.fallback_success_rate or 0)*100) }}%</td>
+  <td>{{ "%.1f"|format((s.degraded_rate or 0)*100) }}%</td>
+  <td>{{ s.fault_injections_total or 0 }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if report.resilience %}
+<h3>Resilience by call site</h3>
+<table>
+<tr><th>call site</th><th>state</th><th>opens</th><th>half-open</th><th>closes</th><th>rejections</th><th>retries</th><th>fallbacks</th><th>degraded</th><th>faults</th></tr>
+{% for site, r in report.resilience.items()|sort %}
+<tr><td>{{ site }}</td><td>{{ r.circuit_state }}</td>
+  <td>{{ "%.0f"|format(r.circuit_opens or 0) }}</td>
+  <td>{{ "%.0f"|format(r.circuit_half_opens or 0) }}</td>
+  <td>{{ "%.0f"|format(r.circuit_closes or 0) }}</td>
+  <td>{{ "%.0f"|format(r.circuit_rejections or 0) }}</td>
+  <td>{{ "%.0f"|format(r.retry_attempts or 0) }}</td>
+  <td>{{ "%.0f"|format(r.fallback_invocations or 0) }}</td>
+  <td>{{ "%.0f"|format(r.degraded or 0) }}</td>
+  <td>{{ "%.0f"|format(r.fault_injections or 0) }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
 
 {% set comp = report.composition or {} %}
 {% if comp %}

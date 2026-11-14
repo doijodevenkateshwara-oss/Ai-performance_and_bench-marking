@@ -13,6 +13,9 @@ This directory contains the framework documentation:
 | [app-endpoint-performance-testing.md](app-endpoint-performance-testing.md) | Black-box app endpoint benchmarking: HTTP/gRPC config, templates, datasets, running, results, validation, CI flow |
 | [app-object-performance-testing.md](app-object-performance-testing.md) | In-process LangChain/LlamaIndex/custom-object benchmarking: python_path/call contract, config, running, results, validation, CI flow |
 | [workload-profiles.md](workload-profiles.md) | Load shaping: nine workload profiles, custom stages, think time, E2E test flow, distributed runs, result interpretation |
+| [optimization.md](optimization.md) | Benchmark-driven tuning: bounded parameter trials, feasibility constraints, winner selection, optimized YAML output |
+| [resilience.md](resilience.md) | Retry, circuit-breaker, fallback, and fault-injection validation for RAG/agent/endpoint dependencies |
+| [slo.md](slo.md) | Request, functional, and non-degraded availability SLOs plus phase-window reporting |
 | [methodology.md](methodology.md) | Timing accuracy, gevent concurrency model, when streaming metrics are unreliable |
 | [demo.md](demo.md) | Live demo: start the Docker observability stack, dashboard URLs, run a mock test |
 

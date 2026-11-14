@@ -22,16 +22,18 @@ and observability assets. This page maps every file/directory to its role.
 | Path | Purpose |
 |---|---|
 | `llm_perf/__init__.py` | Package marker |
-| `llm_perf/cli.py` | Typer CLI: `run`, `validate`, `proto-gen`, `quality-check`, `dataset list/show/sample/import/validate/coverage`, `baseline mark/list` |
-| `llm_perf/config.py` | Pydantic schema for the whole YAML config: observability, security, datasets, targets (4 layers), scenarios, load, thresholds, report |
+| `llm_perf/cli.py` | Typer CLI: `run`, `optimize`, `validate`, `proto-gen`, `quality-check`, `dataset list/show/sample/import/validate/coverage`, `baseline mark/list` |
+| `llm_perf/config.py` | Pydantic schema for the whole YAML config: observability, security, datasets, targets (4 layers), scenarios, load, thresholds, report, optimization, resilience |
 | `llm_perf/locustfile.py` | Locust entry point: reads `LLM_PERF_CONFIG`, builds weighted `User` classes, optional `LLMPerfShape`, wires `test_start`/`test_stop`/`quitting` hooks for OTel, resource sampling, reports, thresholds, alerts |
 | `llm_perf/scenarios.py` | Turns `scenarios[]` into one Locust `User` class per scenario, with `wait_time` from `think_time` and weighted selection |
-| `llm_perf/tasks.py` | `RequestContext`: per-scenario runtime state — resolves the layer, picks prompt/dataset row, runs the request, evaluates quality, accumulates cost |
-| `llm_perf/metrics.py` | OTel instruments + Locust custom-stat bridge; exact sample store for TTFT/TPOT/ITL/gen-duration/queue-wait/retries/timeouts/quality/context-recall/IR (recall@k/precision@k/MRR/NDCG)/agent metrics; per-request latency breakdown for percentile-safe composition; cost-by-call-site accumulation; `request_span`, `record_response`, `record_error`, `record_stage`, `record_cost`, `record_agent_eval`, `record_users`, `record_threshold`, `estimate_cost` |
+| `llm_perf/tasks.py` | `RequestContext`: per-scenario runtime state — resolves the layer, picks prompt/dataset row, runs the request, evaluates quality, records request/functional/non-degraded availability, accumulates cost |
+| `llm_perf/metrics.py` | OTel instruments + Locust custom-stat bridge; exact sample store for TTFT/TPOT/ITL/gen-duration/queue-wait/retries/timeouts/quality/context-recall/IR (recall@k/precision@k/MRR/NDCG)/agent/resilience metrics; uncapped request-SLO counters plus timestamped phase samples; per-request latency breakdown for percentile-safe composition; cost-by-call-site accumulation; `request_span`, `record_response`, `record_error`, `record_stage`, `record_cost`, `record_agent_eval`, `record_users`, `record_threshold`, `estimate_cost`, `resilience_snapshot` |
 | `llm_perf/security.py` | Egress/execution guardrails: URL allowlist + private-network (SSRF) checks on all outbound HTTP, Python-execution gate for `python_path`/function tools, secret redaction for error stats/spans, untrusted-config audit warnings |
 | `llm_perf/reporters.py` | Aggregates Locust stats into a report dict and writes CSV/JSON/HTML under `report.output_dir` |
 | `llm_perf/thresholds.py` | SLO rule evaluation (`ThresholdRule` → `RuleResult`), threshold gauges, webhook alerts (Slack/PagerDuty/generic) |
-| `llm_perf/analysis.py` | Post-run analysis: executive summary, SLO rollup, bottleneck detection, baseline comparison, regression detection |
+| `llm_perf/analysis.py` | Post-run analysis: executive summary, SLO rollup, bottleneck detection, structured optimization recommendations, baseline comparison, regression detection |
+| `llm_perf/optimizer.py` | Benchmark-driven parameter search: bounded candidate mutation, per-trial subprocess runs, constraint/objective scoring, optimization JSON + `optimized.yaml` artifacts |
+| `llm_perf/resilience.py` | Reusable dependency-boundary resilience engine: retry classification/backoff, closed/open/half-open breakers, static/context/alternate fallbacks, deterministic fault windows, per-call-site state |
 | `llm_perf/history.py` | Persists every run under `report.output_dir/history/`, maintains `index.jsonl`, designated/previous baselines |
 | `llm_perf/resources.py` | Load-generator host sampler (psutil CPU/mem), event-loop lag probe, Prometheus `/metrics` scraper for target-side metrics, generator-health warnings |
 | `llm_perf/workload.py` | Translates `load.profile`/`stages` into phase schedules (`Phase` list) consumed by the Locust `LoadTestShape` |
@@ -39,14 +41,14 @@ and observability assets. This page maps every file/directory to its role.
 | `llm_perf/prompts.py` | Loads prompt pools from inline lists or YAML/CSV/TXT files, `PromptPicker` with row/vars `{var}` rendering |
 | `llm_perf/streaming.py` | Re-exports SSE helpers (`stream_sse`, `stream_timing_stats`, OpenAI/Anthropic extractors) used by providers |
 | `llm_perf/proto.py` | CLI helper for compiling `.proto` files for gRPC targets |
-| `llm_perf/templates/report.html` | Jinja2 template for the HTML report (executive summary, scenario table, charts, bottleneck/SLO/cost/resource sections) |
+| `llm_perf/templates/report.html` | Jinja2 template for the HTML report (executive summary, scenario/SLO-window tables, charts, bottleneck/resilience/cost/resource sections) |
 
 ### `llm_perf/otel/` — observability
 
 | Path | Purpose |
 |---|---|
 | `otel/setup.py` | Initializes OTel `TracerProvider`/`MeterProvider` with OTLP/gRPC export, configurable endpoint + sample ratio, `get_tracer`/`get_meter`/`shutdown` |
-| `otel/genai_semconv.py` | Creates all `llm_perf.*` instruments (request duration/total, TTFT, tokens, tokens/sec, TPOT, generation duration, ITL, queue wait, retries, timeouts, users, stage duration, quality, context recall, cost, threshold pass, agent metrics) and GenAI semantic-convention attribute names |
+| `otel/genai_semconv.py` | Creates all `llm_perf.*` instruments (request duration/total, TTFT, tokens, tokens/sec, TPOT, generation duration, ITL, queue wait, retries, timeouts, users, stage duration, quality, context recall, cost, threshold pass, agent metrics, circuit/fallback/degraded/fault counters) and GenAI semantic-convention attribute names |
 
 ### `llm_perf/providers/` — direct LLM API adapters
 
@@ -134,6 +136,8 @@ Tests are organized by scope: `tests/unit/` (mocked/local, no services),
 | `tests/unit/test_agent_eval.py` | Agent-stage success, tool correctness, loop detection, cost cap |
 | `tests/unit/test_grpc.py` | Bundled proto compilation and stub loading |
 | `tests/unit/test_workstreams_c.py` | Workload profiles, analysis/bottleneck/regression/history, resource sampling |
+| `tests/unit/test_optimizer.py` | Optimization config parsing, bounded candidate mutation, scoring/constraints, trial artifacts, report recommendations |
+| `tests/unit/test_resilience.py` | Retry/exhaustion, breaker transitions/rejections, static and alternate fallbacks, fault windows, availability SLOs, report/threshold wiring |
 | `tests/integration/test_prometheus.py` | Prometheus `/metrics` scraping against a real local HTTP server |
 | `tests/e2e/test_locust_execution.py` | Real headless Locust run against a mock OpenAI server + direct layer smoke test |
 | `tests/e2e/e2e_runner.py` | Subprocess runner used by `test_locust_execution.py` (Locust must run in its own process) |

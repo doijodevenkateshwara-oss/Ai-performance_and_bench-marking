@@ -10,9 +10,9 @@ Every run writes files named `llm-perf-<timestamp>.{csv,json,html}` into
 
 | Format | Best for | Contents |
 |---|---|---|
-| CSV | Spreadsheets, quick diffs | One row per scenario with requests, failures, error rate, latency percentiles, TTFT/TPOT/ITL/gen-duration/queue-wait, tokens/sec, retries/timeouts, quality, context recall, cost, agent metrics |
-| JSON | CI, regression tracking, programmatic analysis | Full report dict: totals, per-scenario methods + enriched metrics (quality sampling, IR metrics), thresholds verdicts, load profile, phases, stages, per-request `composition`, `cost_breakdown`, resources, analysis, comparison, regression |
-| HTML | Stakeholders, executive review | Verdict banner, summary cards, per-scenario table, latency composition chart, stage breakdown, bottleneck analysis, SLO rollup, cost, resource utilization, baseline comparison, regression detection, quality |
+| CSV | Spreadsheets, quick diffs | One row per scenario with requests, failures, availability, latency percentiles, TTFT/TPOT/ITL/gen-duration/queue-wait, tokens/sec, retries/timeouts, quality, context recall, cost, agent metrics, resilience counters |
+| JSON | CI, regression tracking, programmatic analysis | Full report dict: totals, per-scenario methods + enriched metrics (quality sampling, IR metrics), thresholds verdicts, load profile, phases, `slo_windows`, stages, per-request `composition`, `cost_breakdown`, per-call-site `resilience`, resources, analysis, comparison, regression |
+| HTML | Stakeholders, executive review | Verdict banner, summary cards, per-scenario table, phase SLO windows, latency composition chart, stage breakdown, bottleneck analysis, SLO rollup, resilience call-site state, cost, resource utilization, baseline comparison, regression detection, quality |
 
 ## Reproducibility manifest
 
@@ -93,6 +93,9 @@ All times are milliseconds in reports; seconds internally.
 | Metric | Meaning | Why it matters |
 |---|---|---|
 | `requests` / `failures` / `error_rate` | Completed requests, failures, failure ratio | Basic reliability SLO |
+| `availability` | Non-error request ratio | Explicit request-availability SLO |
+| `functional_availability` | Completed requests that also passed configured quality/agent checks | User-visible usable-answer SLO |
+| `non_degraded_availability` | Completed requests with no resilience fallback/degradation | Primary-path availability during failures |
 | `avg_ms`, `p50_ms`, `p90_ms`, `p95_ms`, `p99_ms` | End-to-end request latency percentiles | Overall user-perceived latency |
 | `rps` | Requests per second | Throughput capacity |
 | `ttft_avg_ms` / `ttft_p95_ms` | Time to first token | Prefill/queueing on the provider; critical for chat UX |
@@ -113,13 +116,27 @@ All times are milliseconds in reports; seconds internally.
 | `cost_breakdown` | Spend by call site: generation, reranking, embedding, agent, judge, retry, unattributed | Where the money actually goes — judge sampling and reranking are visible separately |
 | `agent_runs` / `agent_success_rate` | Agent task runs and success rate | Agent reliability |
 | `agent_steps_avg` / `agent_tool_calls_avg` / `agent_tool_errors_avg` / `agent_loops_avg` | Agent loop behavior | Efficiency and failure modes |
+| `retry_exhausted_total` / `circuit_open_total` / `circuit_rejections_total` | Retry budget exhaustion and breaker behavior | Whether failures stayed transient or opened protection |
+| `fallback_invocations_total` / `fallback_success_rate` / `degraded_rate` | Fallback usage, outcome, and degraded-call ratio | Graceful-degradation coverage and user-visible impact |
+| `fault_injections_total` | Injected dependency failures | Confirms the resilience test actually exercised the fault path |
+
+The JSON report also contains a `resilience` object keyed by
+`scenario/target/call-site`. Each site records breaker state and open/half-open/
+closed transitions, retry exhaustion, timeouts, fallback success/failure,
+degraded calls, and injected faults. See [resilience.md](resilience.md) for the
+runtime semantics and supported policies.
 
 ## Thresholds & SLOs
 
 Threshold rules live under `thresholds:` in the YAML config. They can be
 `global` or per-`scenario`, and include latency percentiles, custom p95 rules
-(TTFT/TPOT/ITL/gen/queue), gauges (error rate, throughput, quality, cost,
-agent metrics), and per-`stage` rules for pipelines.
+(TTFT/TPOT/ITL/gen/queue), gauges (error rate, request/functional/non-degraded
+availability, throughput, quality, cost, agent metrics), resilience rules (`max_retry_exhausted`,
+`max_circuit_open_events`, `max_circuit_rejections`,
+`min_fallback_success_rate`, `max_degraded_rate`), availability rules
+(`min_availability`, `min_functional_availability`,
+`min_non_degraded_availability`), and per-`stage` rules for pipelines. See
+[slo.md](slo.md) for the availability semantics and phase-window output.
 
 Example verdicts in the JSON report:
 
@@ -169,6 +186,10 @@ The JSON/HTML reports include an `analysis` object:
   - `decode_bound` — generation duration dominates e2e (decode-bound)
   - `reliability` — high retries/timeouts
   - `queueing` — queue wait is a large share of e2e (load-generator saturation)
+- **optimization** — structured tuning hints derived from the dominant segment:
+  scenario/stage, safe optimization paths, and the recommended next action.
+  These are inputs to `llm-perf optimize`; they do not mutate the pipeline
+  (see [optimization.md](optimization.md)).
 
 ### Latency composition semantics
 

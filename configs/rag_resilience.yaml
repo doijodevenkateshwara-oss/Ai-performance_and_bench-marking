@@ -1,0 +1,96 @@
+# Example: deterministic resilience validation for a RAG pipeline.
+# Point the two local HTTP endpoints at your mock/primary/fallback services.
+observability:
+  otel:
+    enabled: false
+
+security:
+  allow_private_networks: true  # the example intentionally targets localhost
+
+datasets:
+  qa_pairs:
+    source: ../datasets/qa_pairs.jsonl
+    format: jsonl
+    columns:
+      prompt: question
+      expected: expected_answer
+      context: expected_context
+    sample: { strategy: first, count: 10 }
+
+targets:
+  - name: rag_resilient
+    layer: pipeline
+    dataset: qa_pairs
+
+    pipeline:
+      - stage: retrieve
+        vector_store:
+          type: json
+          path: ../datasets/docs.jsonl
+        top_k: 3
+        resilience:
+          # If retrieval fails, continue with no context and mark the call degraded.
+          fallback: { type: empty_context, mark_degraded: true }
+
+      - stage: generate
+        llm:
+          provider: http
+          base_url: http://localhost:9001/chat
+          model: primary-model
+          timeout_s: 5
+        resilience:
+          retry:
+            attempts: 1
+            backoff_s: 0.1
+            max_backoff_s: 1
+            jitter_s: 0
+            retry_on: [timeout, connect, http_5xx]
+          circuit_breaker:
+            enabled: true
+            failure_threshold: 3
+            window_s: 30
+            open_duration_s: 15
+            half_open_calls: 1
+            successes_to_close: 1
+          fallback:
+            type: alternate_llm
+            mark_degraded: true
+            llm:
+              provider: http
+              base_url: http://localhost:9002/chat
+              model: fallback-model
+              timeout_s: 5
+          fault_injection:
+            enabled: true
+            fault: http_503       # deterministic dependency failure
+            probability: 1.0
+            after_s: 5            # baseline traffic for the first 5 seconds
+            duration_s: 20        # then fail for 20 seconds
+            seed: 7
+
+scenarios:
+  - name: rag_resilience
+    target: rag_resilient
+    weight: 100
+    think_time: [0.1, 0.3]
+
+load:
+  users: 3
+  spawn_rate: 1
+  duration: 45s
+
+thresholds:
+  scenarios:
+    rag_resilience:
+      max_error_rate: 0.05
+      min_availability: 0.95
+      min_functional_availability: 0.90
+      min_non_degraded_availability: 0.00  # fallback traffic is expected
+      min_fallback_success_rate: 0.90
+      max_degraded_rate: 1.0
+      max_circuit_open_events: 2
+  on_fail: fail
+
+report:
+  formats: [csv, json, html]
+  output_dir: results/rag-resilience

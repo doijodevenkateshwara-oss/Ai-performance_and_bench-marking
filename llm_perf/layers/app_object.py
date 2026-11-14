@@ -131,7 +131,7 @@ class AppObjectLayer:
                 )
                 log_request_event(scenario_name, e2e * 1000)
                 span.set_attribute("llm_perf.output_chars", len(text))
-                return LayerResult(output_text=text, row=row, raw=result)
+                return LayerResult(output_text=text, row=row, raw=result, duration_s=e2e)
             except Exception as e:
                 e2e = time.monotonic() - start
                 record_error(scenario_name, f"app_{t.framework}", str(e), e2e)
@@ -142,6 +142,7 @@ class AppObjectLayer:
                 return LayerResult(
                     error=str(e),
                     row=row,
+                    duration_s=e2e,
                 )
 
 

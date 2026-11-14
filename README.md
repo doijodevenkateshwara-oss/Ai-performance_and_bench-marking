@@ -70,7 +70,9 @@ or your own code.
 | 🧠 Quality under load | Heuristics + LLM-judge + RAG recall + IR metrics, with sampling transparency | "Does quality hold at 50 users?" |
 | 💰 Cost accounting | Per-scenario `cost_usd`, cost-per-success, call-site breakdown | Budget SLOs, spend attribution |
 | 🎚️ Workload profiles | smoke/baseline/load/stress/spike/soak/scalability/capacity/custom stages | Capacity planning, soak tests, CI smoke |
-| 🚦 SLO gating | pass/fail/not_evaluated thresholds, exit codes, webhook alerts, regression vs baseline | CI pipelines, production readiness |
+| 🎯 Benchmark-driven optimization | Bounded pipeline/API parameter trials scored on latency plus quality/reliability/cost constraints | Query-to-response latency tuning |
+| 🛡️ Resilience validation | Retries, circuit breakers, fallbacks, and deterministic fault injection at dependency boundaries | Graceful-degradation and recovery testing |
+| 🚦 SLO gating | request/functional/non-degraded availability, latency/error thresholds, exit codes, webhook alerts, regression vs baseline | CI pipelines, production readiness |
 | 🔭 Observability | OTel traces/metrics, Grafana/Prometheus/Jaeger stack, resource monitoring | Dashboards, bottleneck analysis, ops review |
 | 🧾 Evidence & reporting | CSV/JSON/HTML reports, run history, provenance manifest | Audit trails, regression tracking |
 
@@ -99,6 +101,9 @@ gating, dataset limits, secret redaction) for untrusted configs.
 | **How much does each request cost?** | `report.pricing` → per-scenario `cost_usd` and `cost_per_success_usd` in reports; `llm_perf.cost.USD` OTel counter; `max_cost` / `max_cost_per_success_usd` SLO rules |
 | **Is quality maintained under load?** | `quality.sample_rate` scores a sample of responses during the run — heuristic, LLM-judge, and RAG context-recall scores land beside performance metrics (`quality_score_avg`, `quality_pass_rate`, `context_recall_avg`); agent runs add task-success rate, tool-call correctness, and loop detection |
 | **Where is the bottleneck?** | `analysis.bottlenecks` in every report splits TTFT (prefill/queueing) from decode (TPOT/ITL), ranks per-stage pipeline latency, rolls up SLO pass/fail, and flags load-generator saturation (CPU/memory/event-loop lag warnings) so you can tell target problems from generator artifacts |
+| **Which safe change reduces latency?** | `llm-perf optimize` evaluates bounded parameter variants under the same workload and writes `optimization-report.json` + `optimized.yaml` with the best feasible configuration |
+| **Does the system degrade gracefully?** | Per-dependency retries, circuit-breaker state transitions, fallback invocations, degraded-call rate, and deterministic fault windows are measured beside latency, quality, cost, and agent success |
+| **Is the service available and usable?** | `availability`, `functional_availability`, and `non_degraded_availability` separate hard failures, quality/agent failures, and fallback-served responses; `slo_windows` shows those rates per load phase |
 
 ## Install
 
@@ -350,9 +355,48 @@ load:
 Phase transitions are printed to the console (`[llm-perf] phase ...`) and the
 full schedule is embedded in the JSON/HTML report under `phases`.
 
-## Retries, timeouts & queue wait
+## Latency optimization
 
-Per-target resilience and scheduling metrics:
+`llm-perf optimize` evaluates bounded configuration variants under the same
+dataset, scenario, and load shape. It uses benchmark results—not runtime
+auto-tuning—to pick the lowest feasible objective value while preserving
+quality, reliability, and cost constraints.
+
+```yaml
+optimization:
+  enabled: true
+  scenario: rag_load
+  objective: p95_ms
+  strategy: grid
+  max_trials: 6
+  constraints:
+    max_error_rate: 0.02
+    min_quality_score: 0.70
+  parameters:
+    - target: rag_pipeline
+      stage_index: 0        # retrieve
+      path: top_k
+      values: [3, 5, 8]
+    - target: rag_pipeline
+      stage_index: 2        # generate
+      path: llm.params.max_tokens
+      values: [256, 512]
+```
+
+```bash
+llm-perf optimize -c configs/my_pipeline.yaml --dry-run   # list candidates
+llm-perf optimize -c configs/my_pipeline.yaml             # run trials
+```
+
+The command writes `optimization-report.json`, per-trial configs/reports, and
+`optimized.yaml`. Every report also exposes `analysis.optimization`, which maps
+the dominant measured stage to structured tuning paths. See
+[docs/optimization.md](docs/optimization.md) for supported paths, constraints,
+and output details.
+
+## Retries, resilience & queue wait
+
+Legacy per-target retries remain supported:
 
 ```yaml
 targets:
@@ -361,6 +405,28 @@ targets:
     retry_backoff_s: 0.5  # exponential backoff base
     timeout_s: 60
 ```
+
+For graceful-degradation validation, `resilience:` adds bounded retries,
+closed/open/half-open circuit breakers, fallbacks, and deterministic fault
+windows at framework-managed dependency boundaries:
+
+```yaml
+pipeline:
+  - stage: retrieve
+    resilience:
+      fallback: { type: empty_context }
+  - stage: generate
+    resilience:
+      retry: { attempts: 1, retry_on: [timeout, connect, http_5xx] }
+      circuit_breaker: { enabled: true, failure_threshold: 3 }
+      fallback: { type: static_response, response: "temporarily degraded" }
+      fault_injection: { enabled: true, fault: http_503, after_s: 5, duration_s: 20 }
+```
+
+Reports expose retry exhaustion, breaker openings/rejections, half-open/closed
+recovery, fallback success, degraded traffic, injected faults, quality, and
+agent-success metrics. See [docs/resilience.md](docs/resilience.md) and
+[configs/rag_resilience.yaml](configs/rag_resilience.yaml).
 
 - **queue wait** — time from virtual-user task start to request dispatch
   (think-time/scheduler overhead), logged per request as `QUEUE_WAIT`.
@@ -432,6 +498,9 @@ thresholds:
       max_retries: 100
       max_timeouts: 10
       max_cost_per_success_usd: 0.01
+      min_availability: 0.995
+      min_functional_availability: 0.95
+      min_non_degraded_availability: 0.90
       min_quality_score: 0.7
       min_context_recall: 0.5
       stages: { retrieve: { p95_ms: 300 }, generate: { p95_ms: 40000 } }
@@ -449,9 +518,13 @@ thresholds:
 ```
 
 Metrics you can gate on: `p50/p90/p95/p99_ms`, `ttft_p95_ms`,
-`max_error_rate`, `min_throughput_rps`, `min_quality_score`,
-`min_quality_pass_rate`, `min_context_recall`, `max_cost_usd`, and per-`stage`
-latency rules. Threshold state is exported live as `llm_perf_threshold_pass`
+`max_error_rate`, `min_availability`, `min_functional_availability`,
+`min_non_degraded_availability`, `min_throughput_rps`, `min_quality_score`,
+`min_quality_pass_rate`, `min_context_recall`, `max_cost_usd`, per-`stage`
+latency rules, and resilience rules (`max_retry_exhausted`,
+`max_circuit_open_events`, `max_circuit_rejections`,
+`min_fallback_success_rate`, `max_degraded_rate`). Threshold state is exported
+live as `llm_perf_threshold_pass`
 gauges for Grafana/Alertmanager mid-run alerting; `on_fail: fail` makes the
 CLI exit non-zero.
 
@@ -542,6 +615,7 @@ Live Locust UI during a run (captured against a local mock server):
 |---|---|---|
 | `llm_perf.request.duration` | histogram (s) | scenario, provider, target, stream, model |
 | `llm_perf.request.total` | counter | scenario, provider, result |
+| `llm_perf.request.availability` | counter | scenario, kind=availability/functional/non_degraded, result |
 | `llm_perf.ttft` | histogram (s) | scenario, provider |
 | `llm_perf.tpot` | histogram (s) | scenario, provider |
 | `llm_perf.generation.duration` | histogram (s) | scenario, provider — decode phase |
@@ -567,13 +641,14 @@ reason).
 
 End-of-run reports in `report.output_dir`:
 
-- **CSV** — per-scenario stats (requests, failures, percentiles, TTFT, TPOT,
-  ITL, generation duration, queue wait, retries/timeouts, tokens/sec, cost,
-  quality score, context recall).
+- **CSV** — per-scenario stats (requests, failures, availability, percentiles,
+  TTFT, TPOT, ITL, generation duration, queue wait, retries/timeouts,
+  tokens/sec, cost, quality score, context recall).
 - **JSON** — machine-readable aggregate for CI/regression tracking, including
-  `phases`, `stages`, `resources`, `analysis`, `comparison`, `regression`.
+  `phases`, `slo_windows`, `stages`, `resources`, `analysis`, `comparison`,
+  `regression`.
 - **HTML** — executive summary cards, verdict banner, per-scenario table with
-  streaming-timing columns, TTFT-vs-generation latency composition chart,
+  streaming-timing columns, phase SLO windows, TTFT-vs-generation latency composition chart,
   pipeline stage breakdown, **bottleneck analysis**, **cost analysis**,
   **resource utilization**, **baseline comparison**, **regression detection**,
   SLO rollup, quality, and threshold verdicts.
@@ -711,6 +786,9 @@ Detailed guides live in [`docs/`](docs/README.md):
 - [App endpoint performance testing](docs/app-endpoint-performance-testing.md) — black-box HTTP/gRPC endpoint benchmarking guide
 - [App object performance testing](docs/app-object-performance-testing.md) — in-process LangChain/LlamaIndex/custom-object benchmarking guide
 - [Workload profiles](docs/workload-profiles.md) — load shaping (smoke→soak), custom stages, E2E testing flow
+- [Optimization](docs/optimization.md) — bounded benchmark-driven parameter tuning
+- [Resilience](docs/resilience.md) — retries, breakers, fallbacks, and fault injection
+- [Availability SLOs](docs/slo.md) — request, functional, and non-degraded availability
 - [Methodology](docs/methodology.md) — timing accuracy, gevent concurrency, when streaming metrics are unreliable
 - [Live demo](docs/demo.md) — Docker observability stack, dashboard URLs, mock test walkthrough
 

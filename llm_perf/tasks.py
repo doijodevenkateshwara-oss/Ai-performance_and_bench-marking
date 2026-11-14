@@ -43,6 +43,7 @@ class RequestContext:
         if scenario.stream is not None:
             params["_stream"] = scenario.stream
         result = layer.run(prompt, row, params, scenario_name=scenario.name)
+        completed_at = time.time()
 
         qres = QualityResult()
         if scenario.quality and not result.error:
@@ -79,6 +80,23 @@ class RequestContext:
                     self.cost_by_scenario[scenario.name] = (
                         self.cost_by_scenario.get(scenario.name, 0.0) + jcost
                     )
+
+        # One request-level SLO sample. Functional availability means the
+        # request completed and every configured functional check (quality and
+        # agent task success) passed; missing checks do not penalize the run.
+        available = result.error is None
+        quality_ok = qres.passed if qres.passed is not None else True
+        agent_ok = result.agent_success if result.agent_success is not None else True
+        from .metrics import record_availability
+
+        record_availability(
+            scenario.name,
+            available=available,
+            functional_available=available and quality_ok and agent_ok,
+            non_degraded_available=available and not result.degraded,
+            duration_s=result.duration_s,
+            timestamp=completed_at,
+        )
 
         # cost accounting (skip quality-only/judge calls — they aren't in result)
         # pipeline layers already attribute cost per stage (generate/rerank/agent);

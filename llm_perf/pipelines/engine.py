@@ -9,9 +9,11 @@ import json
 import os
 import time
 
-from ..config import PipelineStage
+from ..config import PipelineStage, ResilienceConfig
 from ..metrics import estimate_cost, record_cost, record_stage, stage_span
 from ..providers import RequestSpec, call_llm
+from ..providers.base import NormalizedResponse
+from ..resilience import OperationFailed, execute, merge_resilience, provider_retry_config
 
 
 class StageContext:
@@ -40,6 +42,51 @@ class StageContext:
         self.ir_metrics: dict = {}  # recall@k/precision@k/mrr/ndcg when judgments exist
         self.embedding: list[float] | None = None  # populated by an embed stage
         self.agent_eval: dict = {}  # populated by the agent stage
+        self.degraded = False  # any dependency completed through a marked fallback
+
+
+def _stage_resilience(ctx: StageContext, stage: PipelineStage):
+    """Merge target resilience with this stage's explicit overrides."""
+    return merge_resilience(ctx.params.get("_target_resilience"), stage.resilience)
+
+
+def _target_name(ctx: StageContext) -> str:
+    """Return the owning target name used as a resilience call-site key."""
+    return str(ctx.params.get("_target_name") or "pipeline")
+
+
+def _mark_degraded(ctx: StageContext, outcome) -> None:
+    """Mark the request degraded when any dependency uses marked fallback."""
+    if ctx is not None:
+        ctx.degraded = ctx.degraded or bool(getattr(outcome, "degraded", False))
+
+
+def _http_failure(resp) -> tuple[str, str] | None:
+    """Classify an HTTP Response as retryable/non-retryable dependency failure."""
+    status = getattr(resp, "status_code", 0) or 0
+    if status >= 500:
+        return "http_5xx", f"HTTP {status}"
+    if status >= 400:
+        return "http_4xx", f"HTTP {status}"
+    return None
+
+
+def _llm_failure(resp: NormalizedResponse) -> tuple[str, str] | None:
+    """Classify a NormalizedResponse as an LLM dependency failure."""
+    err = (resp.raw or {}).get("error") if isinstance(resp.raw, dict) else None
+    if not err:
+        return None
+    return ("timeout" if resp.timed_out else "llm_error"), str(err)
+
+
+def _static_llm_response(text: str) -> NormalizedResponse:
+    """Build a successful degraded response for static-response fallbacks."""
+    return NormalizedResponse(text=text or "", raw={"fallback": "static_response"})
+
+
+def _context_docs(texts: list[str]) -> list[dict]:
+    """Normalize static fallback context strings into retrieved-doc records."""
+    return [{"text": text, "score": None, "raw": {"fallback": "static_context"}} for text in texts if text]
 
 
 def _rec_stage(ctx: StageContext, name: str, dur: float, **attrs) -> None:
@@ -52,25 +99,12 @@ def _rec_stage(ctx: StageContext, name: str, dur: float, **attrs) -> None:
     ctx.stage_durations[name] = ctx.stage_durations.get(name, 0.0) + dur
 
 
-def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
-    """Render template + call LLM."""
-    from jinja2 import Template
-
-    llm_cfg = stage.llm or {}
+def _call_generate_llm(
+    stage: PipelineStage, ctx: StageContext, prompt: str, llm_cfg: dict, res
+) -> NormalizedResponse:
+    """Call one generate-stage LLM config with its provider retry policy."""
     provider = llm_cfg.get("provider", ctx.params.get("provider", "openai"))
     model = llm_cfg.get("model", ctx.params.get("model", "gpt-4o"))
-    template_path = stage.template
-    if template_path and os.path.exists(template_path):
-        with open(template_path) as f:
-            template = Template(f.read())
-    else:
-        template = Template(stage.template or "{{question}}\n\nContext:\n{{context}}")
-    context = "\n\n".join(ctx.context_texts)
-    # row fields expand into template vars, but reserved names (question,
-    # context, row) are supplied explicitly — a dataset column literally
-    # named e.g. "question" must not collide with the explicit kwarg.
-    row_vars = {k: v for k, v in ctx.row.items() if k not in ("question", "context", "row")}
-    prompt = template.render(question=ctx.question, context=context, row=ctx.row, **row_vars)
     spec = RequestSpec(
         provider=provider,
         prompt=prompt,
@@ -83,13 +117,61 @@ def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
             "azure": llm_cfg.get("azure") or {},
             "aws": llm_cfg.get("aws") or {},
             "grpc": llm_cfg.get("grpc") or {},
+            "retry": provider_retry_config(res.retry),
         },
     )
+    return call_llm(spec)
+
+
+def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
+    """Render template + call LLM."""
+    from jinja2 import Template
+
+    llm_cfg = stage.llm or {}
+    provider = llm_cfg.get("provider", ctx.params.get("provider", "openai"))
+    model = llm_cfg.get("model", ctx.params.get("model", "gpt-4o"))
+    res = _stage_resilience(ctx, stage)
+    template_path = stage.template
+    if template_path and os.path.exists(template_path):
+        with open(template_path) as f:
+            template = Template(f.read())
+    else:
+        template = Template(stage.template or "{{question}}\n\nContext:\n{{context}}")
+    context = "\n\n".join(ctx.context_texts)
+    # row fields expand into template vars, but reserved names (question,
+    # context, row) are supplied explicitly — a dataset column literally
+    # named e.g. "question" must not collide with the explicit kwarg.
+    row_vars = {k: v for k, v in ctx.row.items() if k not in ("question", "context", "row")}
+    prompt = template.render(question=ctx.question, context=context, row=ctx.row, **row_vars)
+
+    def fallback(exc):
+        fb = res.fallback
+        if fb.type == "static_response":
+            return _static_llm_response(fb.response or "")
+        if fb.type == "alternate_llm" and fb.llm:
+            resp = _call_generate_llm(stage, ctx, prompt, fb.llm, res)
+            failure = _llm_failure(resp)
+            if failure:
+                raise OperationFailed(failure[0], failure[1], resp)
+            return resp
+        raise exc
+
     with stage_span("generate", ctx.scenario, provider=provider, model=model):
         start = time.monotonic()
-        resp = call_llm(spec)
+        outcome = execute(
+            scenario=ctx.scenario,
+            target=_target_name(ctx),
+            site="generate",
+            resilience=res,
+            operation=lambda: _call_generate_llm(stage, ctx, prompt, llm_cfg, res),
+            result_failure=_llm_failure,
+            fallback=fallback,
+            retry_attempts=0,
+        )
+        resp = outcome.value
         dur = time.monotonic() - start
-        _rec_stage(ctx, "generate", dur, provider=provider)
+        _mark_degraded(ctx, outcome)
+        _rec_stage(ctx, "generate", dur, provider=provider, degraded=outcome.degraded)
         ctx.output_text = resp.text
         ctx.usage["prompt_tokens"] += resp.prompt_tokens
         ctx.usage["completion_tokens"] += resp.completion_tokens
@@ -98,10 +180,6 @@ def run_stage_generate(stage: PipelineStage, ctx: StageContext) -> None:
             estimate_cost(resp.prompt_tokens, resp.completion_tokens, ctx.pricing),
             stage="generation",
         )
-        err = resp.raw.get("error") if isinstance(resp.raw, dict) else None
-        if err:
-            ctx.output_text = ""
-            raise RuntimeError(f"generate stage failed: {err}")
 
 
 def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
@@ -109,11 +187,30 @@ def run_stage_retrieve(stage: PipelineStage, ctx: StageContext) -> None:
     vs = stage.vector_store or {}
     vtype = vs.get("type", "http")
     top_k = stage.top_k
+    res = _stage_resilience(ctx, stage)
+
+    def fallback(exc):
+        fb = res.fallback
+        if fb.type in ("empty_context", "passthrough"):
+            return []
+        if fb.type == "static_context":
+            return _context_docs(fb.context or ([fb.response] if fb.response else []))
+        raise exc
+
     with stage_span("retrieve", ctx.scenario, store=vtype):
         start = time.monotonic()
-        docs = _retrieve(vtype, vs, ctx.question, top_k, embedding=ctx.embedding)
+        outcome = execute(
+            scenario=ctx.scenario,
+            target=_target_name(ctx),
+            site="retrieve",
+            resilience=res,
+            operation=lambda: _retrieve(vtype, vs, ctx.question, top_k, embedding=ctx.embedding),
+            fallback=fallback,
+        )
+        docs = outcome.value
         dur = time.monotonic() - start
-        _rec_stage(ctx, "retrieve", dur, store=vtype)
+        _mark_degraded(ctx, outcome)
+        _rec_stage(ctx, "retrieve", dur, store=vtype, degraded=outcome.degraded)
         ctx.docs = docs
         ctx.context_texts = [d.get("text", "") for d in docs]
         ctx.ir_metrics = _ir_metrics(ctx, docs, top_k)
@@ -357,17 +454,41 @@ def run_stage_rerank(stage: PipelineStage, ctx: StageContext) -> None:
     if not ctx.docs:
         return
     method = stage.method or "llm"
+    res = _stage_resilience(ctx, stage)
     with stage_span("rerank", ctx.scenario, method=method):
         start = time.monotonic()
         if method == "llm":
-            ctx.docs = _rerank_llm(stage, ctx)
+
+            def fallback(exc):
+                fb = res.fallback
+                if fb.type in ("passthrough", "empty_context"):
+                    return list(ctx.docs)
+                if fb.type == "static_context":
+                    return _context_docs(fb.context or ([fb.response] if fb.response else []))
+                if fb.type == "alternate_llm" and fb.llm:
+                    fallback_stage = stage.model_copy(update={"llm": fb.llm})
+                    return _rerank_llm(fallback_stage, ctx, res)
+                raise exc
+
+            outcome = execute(
+                scenario=ctx.scenario,
+                target=_target_name(ctx),
+                site="rerank",
+                resilience=res,
+                operation=lambda: _rerank_llm(stage, ctx, res),
+                fallback=fallback,
+            )
+            ctx.docs = outcome.value
+            degraded = outcome.degraded
+            _mark_degraded(ctx, outcome)
         else:
             ctx.docs = _rerank_cross_encoder(stage, ctx)
+            degraded = False
         ctx.context_texts = [d.get("text", "") for d in ctx.docs]
-        _rec_stage(ctx, "rerank", time.monotonic() - start, method=method)
+        _rec_stage(ctx, "rerank", time.monotonic() - start, method=method, degraded=degraded)
 
 
-def _rerank_llm(stage: PipelineStage, ctx: StageContext) -> list[dict]:
+def _rerank_llm(stage: PipelineStage, ctx: StageContext, res) -> list[dict]:
     """Pointwise LLM rerank: score each doc 0-10, keep order."""
     llm_cfg = stage.llm or {}
     provider = llm_cfg.get("provider", "openai")
@@ -386,8 +507,17 @@ def _rerank_llm(stage: PipelineStage, ctx: StageContext) -> list[dict]:
             api_key=_resolve_key(llm_cfg),
             base_url=llm_cfg.get("base_url"),
             timeout_s=60,
+            extra={
+                "azure": llm_cfg.get("azure") or {},
+                "aws": llm_cfg.get("aws") or {},
+                "grpc": llm_cfg.get("grpc") or {},
+                "retry": provider_retry_config(res.retry),
+            },
         )
         resp = call_llm(spec)
+        failure = _llm_failure(resp)
+        if failure:
+            raise OperationFailed(failure[0], failure[1], resp)
         ctx.usage["prompt_tokens"] += resp.prompt_tokens
         ctx.usage["completion_tokens"] += resp.completion_tokens
         record_cost(
@@ -450,7 +580,55 @@ def _build_agent_tools(tool_cfgs: list[dict]):
     return schemas, executors
 
 
-def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
+def _execute_tool(executor, name: str, args: dict, ctx: StageContext, res=None):
+    """Run one tool with retry, circuit-breaker, and fallback policies."""
+    if executor is None:
+        return f"error: unknown tool {name!r}", 0.0
+    res = res or ResilienceConfig()
+    active = (
+        res.retry.attempts > 0
+        or res.circuit_breaker.enabled
+        or res.fallback.type != "none"
+        or res.fault_injection.enabled
+    )
+    started = time.monotonic()
+    if not active:
+        return _execute_tool_once(executor, name, args, ctx)
+
+    def fallback(exc):
+        fb = res.fallback
+        if fb.type == "static_response":
+            return fb.response or "", 0.0
+        if fb.type == "alternate_tool" and fb.tool:
+            tool_cfg = dict(fb.tool)
+            kind = tool_cfg.get("type")
+            if kind in ("http", "function", "retrieve"):
+                result = _execute_tool_once((kind, tool_cfg), name, args, ctx, strict=True)
+                if str(result[0]).startswith("error:"):
+                    raise OperationFailed("exception", result[0], result)
+                return result
+        raise exc
+
+    try:
+        outcome = execute(
+            scenario=ctx.scenario if ctx is not None else "default",
+            target=_target_name(ctx) if ctx is not None else "agent_tool",
+            site="agent_tool",
+            resilience=res,
+            operation=lambda: _execute_tool_once(executor, name, args, ctx, strict=True),
+            result_failure=lambda result: (
+                ("exception", result[0]) if str(result[0]).startswith("error:") else None
+            ),
+            fallback=fallback,
+        )
+    except Exception as exc:
+        return f"error: tool {name} failed: {exc}", time.monotonic() - started
+    _mark_degraded(ctx, outcome)
+    result_text, _inner_dur = outcome.value
+    return result_text, time.monotonic() - started
+
+
+def _execute_tool_once(executor, name: str, args: dict, ctx: StageContext, strict: bool = False):
     """Run one tool; returns (result_text, duration_s)."""
     import json as _json
 
@@ -479,6 +657,7 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
                 timeout=cfg.get("timeout_s", 30),
                 stream=True,
             )
+            resp.raise_for_status()
             return read_response_text(resp)[:8000], time.monotonic() - start
         if kind == "function":
             from ..security import python_execution_allowed
@@ -522,6 +701,8 @@ def _execute_tool(executor, name: str, args: dict, ctx: StageContext):
             )
             return "\n\n".join(d.get("text", "") for d in docs)[:8000], time.monotonic() - start
     except Exception as e:
+        if strict:
+            raise
         return f"error: tool {name} failed: {e}", time.monotonic() - start
     return "", time.monotonic() - start
 
@@ -588,29 +769,63 @@ def _agent_llm_call(
     params: dict,
     messages: list,
     i: int,
+    res,
 ):
     """One agent LLM step inside a stage span; returns NormalizedResponse."""
     model = params.get("model")
-    spec = RequestSpec(
-        provider=provider,
-        prompt=ctx.question,
-        messages=list(messages),
-        params=params,
-        stream=False,
-        api_key=_resolve_key(llm_cfg),
-        base_url=llm_cfg.get("base_url"),
-        timeout_s=llm_cfg.get("timeout_s", 120.0),
-        extra={
-            "azure": llm_cfg.get("azure") or {},
-            "aws": llm_cfg.get("aws") or {},
-            "grpc": llm_cfg.get("grpc") or {},
-        },
-    )
+
+    def call_llm_config(cfg: dict, selected_provider: str):
+        call_params = {**params, **(cfg.get("params") or {})}
+        if cfg.get("model"):
+            call_params["model"] = cfg["model"]
+        spec = RequestSpec(
+            provider=selected_provider,
+            prompt=ctx.question,
+            messages=list(messages),
+            params=call_params,
+            stream=False,
+            api_key=_resolve_key(cfg),
+            base_url=cfg.get("base_url"),
+            timeout_s=cfg.get("timeout_s", 120.0),
+            extra={
+                "azure": cfg.get("azure") or {},
+                "aws": cfg.get("aws") or {},
+                "grpc": cfg.get("grpc") or {},
+                "retry": provider_retry_config(res.retry),
+            },
+        )
+        return call_llm(spec)
+
+    def fallback(exc):
+        fb = res.fallback
+        if fb.type == "static_response":
+            return _static_llm_response(fb.response or "")
+        if fb.type == "alternate_llm" and fb.llm:
+            alt_cfg = fb.llm
+            alt_provider = alt_cfg.get("provider", provider)
+            resp = call_llm_config(alt_cfg, alt_provider)
+            failure = _llm_failure(resp)
+            if failure:
+                raise OperationFailed(failure[0], failure[1], resp)
+            return resp
+        raise exc
+
     with stage_span("agent_step", ctx.scenario, step=i, provider=provider, model=model):
         start = time.monotonic()
-        resp = call_llm(spec)
+        outcome = execute(
+            scenario=ctx.scenario,
+            target=_target_name(ctx),
+            site="agent_step",
+            resilience=res,
+            operation=lambda: call_llm_config(llm_cfg, provider),
+            result_failure=_llm_failure,
+            fallback=fallback,
+            retry_attempts=0,
+        )
+        resp = outcome.value
         dur = time.monotonic() - start
-    _rec_stage(ctx, "agent_step", dur, provider=provider, step=i)
+    _mark_degraded(ctx, outcome)
+    _rec_stage(ctx, "agent_step", dur, provider=provider, step=i, degraded=outcome.degraded)
     return resp
 
 
@@ -623,6 +838,7 @@ def _agent_tool_round(
     loop_flagged: set,
     loop_threshold: int,
     messages: list,
+    res,
 ) -> None:
     """Execute all tool calls from one assistant turn; append tool messages."""
     for tc in tool_calls:
@@ -645,7 +861,7 @@ def _agent_tool_round(
             ev["repeated_calls"] += sig_counts[sig]
         if name not in executors:
             ev["unknown_tools"] += 1
-        result_text, tool_dur = _execute_tool(executors.get(name), name, args, ctx)
+        result_text, tool_dur = _execute_tool(executors.get(name), name, args, ctx, res)
         if (result_text or "").startswith("error:"):
             ev["tool_errors"] += 1
         _rec_stage(ctx, "agent_tool", tool_dur, tool=name)
@@ -667,6 +883,7 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
         raise NotImplementedError(
             f"agent stage supports openai/azure providers for tool calling, got {provider!r}"
         )
+    res = _stage_resilience(ctx, stage)
     tools_schema, executors = _build_agent_tools(stage.tools or [])
     model = llm_cfg.get("model", "gpt-4o")
     max_iter = stage.max_iterations or 6
@@ -686,7 +903,7 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
     loop_flagged: set[str] = set()
 
     for i in range(max_iter):
-        resp = _agent_llm_call(ctx, llm_cfg, provider, params, messages, i)
+        resp = _agent_llm_call(ctx, llm_cfg, provider, params, messages, i, res)
         total_in += resp.prompt_tokens
         total_out += resp.completion_tokens
         steps += 1
@@ -708,7 +925,17 @@ def run_stage_agent(stage: PipelineStage, ctx: StageContext) -> None:
             break
 
         messages.append({"role": "assistant", "content": resp.text or None, "tool_calls": tool_calls})
-        _agent_tool_round(tool_calls, executors, ctx, ev, sig_counts, loop_flagged, loop_threshold, messages)
+        _agent_tool_round(
+            tool_calls,
+            executors,
+            ctx,
+            ev,
+            sig_counts,
+            loop_flagged,
+            loop_threshold,
+            messages,
+            res,
+        )
     else:
         ev["terminated"] = "max_iterations"
         ev["max_iter_reached"] = True
@@ -755,21 +982,57 @@ def run_stage_embed(stage: PipelineStage, ctx: StageContext) -> None:
     from ..providers.http_common import HttpClient
 
     cfg = stage.embedding or stage.llm or {}
-    base = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
-    url = cfg.get("endpoint") or f"{base}/embeddings"
     model = cfg.get("model", "text-embedding-3-small")
     provider = cfg.get("provider", "openai_compat")
-    timeout = cfg.get("timeout_s", 60.0)
-    headers = {"Content-Type": "application/json"}
-    key = _resolve_key(cfg)
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    body = {"model": model, "input": ctx.question, **cfg.get("params", {})}
+    res = _stage_resilience(ctx, stage)
+
+    def call_embedding(embed_cfg: dict):
+        base = (embed_cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+        url = embed_cfg.get("endpoint") or f"{base}/embeddings"
+        timeout = embed_cfg.get("timeout_s", 60.0)
+        headers = {"Content-Type": "application/json"}
+        key = _resolve_key(embed_cfg)
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        body = {
+            "model": embed_cfg.get("model", model),
+            "input": ctx.question,
+            **embed_cfg.get("params", {}),
+        }
+        return HttpClient(timeout_s=timeout).post(url, headers, body, timeout=timeout)
+
+    def fallback(exc):
+        fb = res.fallback
+        if fb.type == "alternate_llm" and fb.llm:
+            resp = call_embedding(fb.llm)
+            failure = _http_failure(resp)
+            if failure:
+                raise OperationFailed(failure[0], failure[1], resp)
+            return resp
+        if fb.type in ("passthrough", "empty_context", "static_context"):
+            return None
+        raise exc
+
     with stage_span("embed", ctx.scenario, provider=provider, model=model):
         start = time.monotonic()
-        resp = HttpClient(timeout_s=timeout).post(url, headers, body, timeout=timeout)
+        try:
+            outcome = execute(
+                scenario=ctx.scenario,
+                target=_target_name(ctx),
+                site="embed",
+                resilience=res,
+                operation=lambda: call_embedding(cfg),
+                result_failure=_http_failure,
+                fallback=fallback,
+            )
+        except OperationFailed as exc:
+            raise RuntimeError(f"embed stage failed: {exc}") from exc
+        resp = outcome.value
         dur = time.monotonic() - start
-        _rec_stage(ctx, "embed", dur, provider=provider)
+        _mark_degraded(ctx, outcome)
+        _rec_stage(ctx, "embed", dur, provider=provider, degraded=outcome.degraded)
+        if outcome.fallback_used and resp is None:
+            return
         if resp.status_code >= 400:
             raise RuntimeError(f"embed stage failed: HTTP {resp.status_code} {resp.text[:200]}")
         data = resp.json()

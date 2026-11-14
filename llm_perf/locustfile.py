@@ -115,6 +115,11 @@ def _on_test_start(environment, **kw):
     import time
 
     _test_start_ts = time.time()
+    from .metrics import reset_availability_state
+    from .resilience import reset_resilience_state
+
+    reset_resilience_state()
+    reset_availability_state()
     oc = _config.observability.otel
     if oc.enabled:
         setup_otel(service_name=oc.service_name, endpoint=oc.endpoint, sample_ratio=oc.sample_ratio)
@@ -250,6 +255,30 @@ def _run_reports_and_thresholds(environment) -> None:
         os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
 
 
+def _attach_slo_windows(report: dict) -> None:
+    """Aggregate request-level SLO outcomes for each configured load phase."""
+    if not report.get("phases"):
+        return
+    import time as _time
+
+    from .metrics import availability_window_summary
+
+    phase_start = _test_start_ts or _time.time()
+    slo_windows = []
+    for phase in report["phases"]:
+        phase_end = phase_start + float(phase.get("duration_s") or 0.0)
+        slo_windows.append(
+            {
+                **phase,
+                "start_ts": phase_start,
+                "end_ts": phase_end,
+                "scenarios": availability_window_summary(phase_start, phase_end),
+            }
+        )
+        phase_start = phase_end
+    report["slo_windows"] = slo_windows
+
+
 def _enrich_report(report: dict, stage_stats: dict, cost_by_scenario: dict | None = None) -> None:
     """Attach load profile, stages, resources, analysis, comparison to report."""
     from . import analysis, history, manifest
@@ -269,6 +298,7 @@ def _enrich_report(report: dict, stage_stats: dict, cost_by_scenario: dict | Non
     }
     report["phases"] = schedule_summary(_config.load)
     report["totals"]["peak_users"] = peak_users()
+    _attach_slo_windows(report)
     report["stages"] = [{"scenario": sc, "stage": st, **vals} for (sc, st), vals in stage_stats.items()]
 
     # per-request latency composition (percentile-safe: shares computed per
@@ -294,6 +324,11 @@ def _enrich_report(report: dict, stage_stats: dict, cost_by_scenario: dict | Non
         resources["targets"] = collect_target_metrics(_config.report.scrape)
     if resources:
         report["resources"] = resources
+    from .metrics import resilience_snapshot
+
+    resilience = resilience_snapshot()
+    if resilience:
+        report["resilience"] = resilience
 
     # generator-health warnings (CPU saturation / event-loop lag)
     from .resources import evaluate_resource_warnings
@@ -310,10 +345,12 @@ def _enrich_report(report: dict, stage_stats: dict, cost_by_scenario: dict | Non
                 w["threshold"],
             )
 
+    bottlenecks = analysis.identify_bottlenecks(report)
     report["analysis"] = {
         "executive_summary": analysis.executive_summary(report),
         "slo": analysis.slo_rollup(report),
-        "bottlenecks": analysis.identify_bottlenecks(report),
+        "bottlenecks": bottlenecks,
+        "optimization": analysis.optimization_recommendations(report, bottlenecks),
     }
 
     baseline = history.resolve_baseline(_config, report)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import contextmanager, suppress
 
 from llm_perf.otel.genai_semconv import instruments
@@ -434,11 +434,264 @@ def peak_users() -> int:
     return _PEAK_USERS
 
 
+# ---------------------------------------------------------------------------
+# Request-level SLO samples — availability plus a timestamped latency record.
+# These enable whole-run thresholds and phase/window summaries without relying
+# on sampled quality metrics or Locust's approximate custom-stat buckets.
+# ---------------------------------------------------------------------------
+
+_REQUEST_LOCK = threading.Lock()
+_REQUEST_SAMPLES: deque[dict] = deque(maxlen=50000)
+_REQUEST_TOTALS: dict[str, dict[str, float]] = defaultdict(
+    lambda: {
+        "requests": 0.0,
+        "availability": 0.0,
+        "functional_availability": 0.0,
+        "non_degraded_availability": 0.0,
+    }
+)
+
+
+def record_availability(
+    scenario: str,
+    *,
+    available: bool,
+    functional_available: bool,
+    non_degraded_available: bool,
+    duration_s: float | None = None,
+    timestamp: float | None = None,
+) -> None:
+    """Record one request's SLO outcome and latency for reports/windows."""
+    ts = time.time() if timestamp is None else float(timestamp)
+    sample = {
+        "timestamp": ts,
+        "scenario": scenario,
+        "duration_s": duration_s,
+        "availability": 1.0 if available else 0.0,
+        "functional_availability": 1.0 if functional_available else 0.0,
+        "non_degraded_availability": 1.0 if non_degraded_available else 0.0,
+    }
+    with _REQUEST_LOCK:
+        _REQUEST_SAMPLES.append(sample)
+        totals = _REQUEST_TOTALS[scenario]
+        totals["requests"] += 1.0
+        totals["availability"] += sample["availability"]
+        totals["functional_availability"] += sample["functional_availability"]
+        totals["non_degraded_availability"] += sample["non_degraded_availability"]
+
+    record_metric(scenario, "availability", sample["availability"])
+    record_metric(scenario, "functional_availability", sample["functional_availability"])
+    record_metric(scenario, "non_degraded_availability", sample["non_degraded_availability"])
+
+    inst = instruments()["request_availability"]
+    for kind, value in (
+        ("availability", available),
+        ("functional", functional_available),
+        ("non_degraded", non_degraded_available),
+    ):
+        with suppress(AttributeError):
+            inst.add(
+                1,
+                {
+                    "scenario": scenario,
+                    "kind": kind,
+                    "result": "available" if value else "unavailable",
+                },
+            )
+
+
+def _pct(sorted_values: list[float], pct: float) -> float | None:
+    """Nearest-rank percentile used by compact SLO windows."""
+    if not sorted_values:
+        return None
+    idx = min(int(len(sorted_values) * pct), len(sorted_values) - 1)
+    return sorted_values[idx]
+
+
+def availability_summary(scenario: str | None = None) -> dict[str, dict]:
+    """Return uncapped whole-run SLO rates grouped by scenario."""
+    with _REQUEST_LOCK:
+        totals = {k: dict(v) for k, v in _REQUEST_TOTALS.items()}
+    out = {}
+    for name, values in totals.items():
+        if scenario is not None and name != scenario:
+            continue
+        requests = values["requests"]
+        if not requests:
+            continue
+        out[name] = {
+            "requests": int(requests),
+            "availability": values["availability"] / requests,
+            "functional_availability": values["functional_availability"] / requests,
+            "non_degraded_availability": values["non_degraded_availability"] / requests,
+        }
+    return out
+
+
+def availability_window_summary(
+    start_ts: float,
+    end_ts: float,
+    scenario: str | None = None,
+) -> dict[str, dict]:
+    """Aggregate timestamped SLO samples inside a wall-clock window."""
+    with _REQUEST_LOCK:
+        samples = [
+            s
+            for s in _REQUEST_SAMPLES
+            if start_ts <= s["timestamp"] <= end_ts and (scenario is None or s["scenario"] == scenario)
+        ]
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for sample in samples:
+        grouped[sample["scenario"]].append(sample)
+
+    out = {}
+    for name, rows in grouped.items():
+        n = len(rows)
+        durations_ms = sorted(
+            float(s["duration_s"]) * 1000.0 for s in rows if s.get("duration_s") is not None
+        )
+        out[name] = {
+            "requests": n,
+            "availability": sum(s["availability"] for s in rows) / n,
+            "functional_availability": sum(s["functional_availability"] for s in rows) / n,
+            "non_degraded_availability": sum(s["non_degraded_availability"] for s in rows) / n,
+            "avg_ms": (sum(durations_ms) / len(durations_ms)) if durations_ms else None,
+            "p50_ms": _pct(durations_ms, 0.50),
+            "p95_ms": _pct(durations_ms, 0.95),
+            "p99_ms": _pct(durations_ms, 0.99),
+        }
+    return out
+
+
+def reset_availability_state() -> None:
+    """Clear request SLO counters and timestamped samples before a fresh run."""
+    with _REQUEST_LOCK:
+        _REQUEST_SAMPLES.clear()
+        _REQUEST_TOTALS.clear()
+
+
 def record_threshold(rule: str, passed: bool):
     """Publish threshold pass/fail as a gauge (0/1) for live alerting."""
     g = instruments()["threshold_pass"]
     with suppress(AttributeError):
         g.set(1.0 if passed else 0.0, {"rule": rule})
+
+
+# ---------------------------------------------------------------------------
+# Resilience events — per-call-site state plus scenario-level exact samples.
+# ---------------------------------------------------------------------------
+
+_RESILIENCE_LOCK = threading.Lock()
+_RESILIENCE: dict[tuple[str, str, str], dict] = defaultdict(
+    lambda: {
+        "circuit_state": "closed",
+        "circuit_opens": 0.0,
+        "circuit_half_opens": 0.0,
+        "circuit_closes": 0.0,
+        "circuit_rejections": 0.0,
+        "retry_attempts": 0.0,
+        "retry_exhausted": 0.0,
+        "timeouts": 0.0,
+        "fallback_invocations": 0.0,
+        "fallback_successes": 0.0,
+        "fallback_failures": 0.0,
+        "degraded": 0.0,
+        "fault_injections": 0.0,
+    }
+)
+
+_RESILIENCE_FIELDS = {
+    "retry_attempt": "retry_attempts",
+    "retry_exhausted": "retry_exhausted",
+    "timeout": "timeouts",
+    "circuit_open": "circuit_opens",
+    "circuit_half_open": "circuit_half_opens",
+    "circuit_closed": "circuit_closes",
+    "circuit_rejected": "circuit_rejections",
+    "fallback_invocation": "fallback_invocations",
+    "degraded": "degraded",
+    "fault_injection": "fault_injections",
+}
+_RESILIENCE_METRICS = {
+    "retry_attempt": "retries",
+    "retry_exhausted": "retry_exhausted",
+    "timeout": "timeouts",
+    "circuit_open": "circuit_open",
+    "circuit_half_open": "circuit_half_open",
+    "circuit_closed": "circuit_closed",
+    "circuit_rejected": "circuit_rejected",
+    "fallback_invocation": "fallback_invocations",
+    "fallback_success": "fallback_success",
+    "degraded": "degraded",
+    "fault_injection": "fault_injections",
+}
+
+
+def record_resilience_event(
+    scenario: str,
+    target: str,
+    site: str,
+    event: str,
+    value: float = 1.0,
+) -> None:
+    """Record retry/breaker/fallback/fault events for metrics and reports."""
+    key = (scenario, target, site)
+    with _RESILIENCE_LOCK:
+        snap = _RESILIENCE[key]
+        if event == "circuit_open":
+            snap["circuit_state"] = "open"
+        elif event == "circuit_half_open":
+            snap["circuit_state"] = "half_open"
+        elif event == "circuit_closed":
+            snap["circuit_state"] = "closed"
+        if event == "fallback_success":
+            field = "fallback_successes" if value else "fallback_failures"
+            snap[field] += 1.0
+        elif event in _RESILIENCE_FIELDS:
+            snap[_RESILIENCE_FIELDS[event]] += float(value)
+
+    metric = _RESILIENCE_METRICS.get(event)
+    if metric:
+        record_metric(scenario, metric, float(value))
+
+    inst = instruments()
+    attrs = {"scenario": scenario, "target": target, "site": site}
+    instrument = {
+        "retry_attempt": "retries",
+        "retry_exhausted": "retry_exhausted",
+        "timeout": "timeouts",
+        "circuit_open": "circuit_open",
+        "circuit_half_open": "circuit_half_open",
+        "circuit_closed": "circuit_closed",
+        "circuit_rejected": "circuit_rejected",
+        "fallback_invocation": "fallback_invocations",
+        "fallback_success": "fallback_success",
+        "degraded": "degraded_requests",
+        "fault_injection": "fault_injections",
+    }.get(event)
+    if instrument and float(value) > 0:
+        with suppress(AttributeError):
+            inst[instrument].add(float(value), attrs)
+    if event.startswith("circuit_") and event != "circuit_rejected":
+        state = {"circuit_closed": 0.0, "circuit_half_open": 1.0, "circuit_open": 2.0}.get(event)
+        if state is not None:
+            with suppress(AttributeError):
+                inst["circuit_state"].set(state, attrs)
+
+
+def reset_resilience_metrics() -> None:
+    """Clear per-call-site resilience report counters for a fresh run/test."""
+    with _RESILIENCE_LOCK:
+        _RESILIENCE.clear()
+
+
+def resilience_snapshot() -> dict:
+    """Return per-call-site resilience state for the JSON report."""
+    with _RESILIENCE_LOCK:
+        return {
+            f"{scenario}/{target}/{site}": dict(values)
+            for (scenario, target, site), values in _RESILIENCE.items()
+        }
 
 
 # ---------------------------------------------------------------------------

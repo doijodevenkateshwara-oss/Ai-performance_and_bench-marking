@@ -34,17 +34,26 @@ class PipelineLayer:
         with request_span(scenario_name, t.name, "pipeline") as span:
             start = time.monotonic()
             try:
-                ctx = run_pipeline(
-                    t.pipeline, question, row, scenario_name, scenario_params, pricing=self.pricing
-                )
+                params = dict(scenario_params)
+                params["_target_name"] = t.name
+                params["_target_resilience"] = t.resilience
+                ctx = run_pipeline(t.pipeline, question, row, scenario_name, params, pricing=self.pricing)
             except Exception as e:
                 e2e = time.monotonic() - start
-                record_error(scenario_name, "pipeline", str(e), e2e)
+                failure_result = getattr(e, "result", None)
+                record_error(
+                    scenario_name,
+                    "pipeline",
+                    str(e),
+                    e2e,
+                    timed_out=getattr(failure_result, "timed_out", False),
+                    retries=getattr(failure_result, "retries", 0),
+                )
                 from ..metrics import log_request_event
 
                 log_request_event(scenario_name, e2e * 1000, exception=str(e))
                 span.set_attribute("error", True)
-                return LayerResult(error=str(e), row=row)
+                return LayerResult(error=str(e), row=row, duration_s=e2e)
             e2e = time.monotonic() - start
             # per-request latency breakdown + IR metrics (composition is
             # aggregated per request — never by subtracting percentiles)
@@ -84,5 +93,8 @@ class PipelineLayer:
                 response=resp,
                 row=row,
                 retrieved_texts=ctx.context_texts,
+                duration_s=e2e,
+                degraded=ctx.degraded,
+                agent_success=ctx.agent_eval.get("success"),
                 cost_attributed=True,
             )

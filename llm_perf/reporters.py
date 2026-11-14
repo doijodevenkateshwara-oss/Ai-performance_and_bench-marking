@@ -44,7 +44,7 @@ def _snap(custom_stats, scenario: str, metric: str) -> dict:
     return custom_stats.get((scenario, metric)) or {}
 
 
-def _enrich_scenario(sc: dict, custom_stats: dict) -> None:
+def _enrich_scenario(sc: dict, custom_stats: dict, request_slo: dict | None = None) -> None:
     """Attach derived custom-metric fields to a scenario report entry."""
     name = sc["scenario"]
     ttft_e = _snap(custom_stats, name, "ttft_ms")
@@ -89,8 +89,60 @@ def _enrich_scenario(sc: dict, custom_stats: dict) -> None:
     successes = max(n - req_failures, 1) if n else 0
     cost = sc.get("cost_usd")
     sc["cost_per_success_usd"] = (cost / successes) if cost and successes else None
+    _enrich_availability(sc, custom_stats, name, request_slo)
     _enrich_quality(sc, custom_stats, name)
     _enrich_agent(sc, custom_stats, name)
+    _enrich_resilience(sc, custom_stats, name)
+
+
+def _enrich_availability(sc: dict, custom_stats: dict, name: str, request_slo: dict | None = None) -> None:
+    """Attach request/functional/non-degraded availability to a scenario."""
+    outcome = (request_slo or {}).get(name)
+    if outcome:
+        for metric in ("availability", "functional_availability", "non_degraded_availability"):
+            sc[metric] = round(outcome.get(metric) or 0.0, 4)
+        return
+    se = _snap(custom_stats, name, "availability")
+    if se:
+        sc["availability"] = round(se.get("avg") or 0.0, 4)
+    else:
+        requests = sc.get("requests") or 0
+        failures = sc.get("failures") or 0
+        sc["availability"] = round((requests - failures) / requests, 4) if requests else None
+    for metric in ("functional_availability", "non_degraded_availability"):
+        se = _snap(custom_stats, name, metric)
+        if se:
+            sc[metric] = round(se.get("avg") or 0.0, 4)
+
+
+def _availability_totals(request_slo: dict | None) -> dict:
+    """Weighted whole-run SLO rates from uncapped request outcomes."""
+    totals = {
+        "requests": 0.0,
+        "availability": 0.0,
+        "functional_availability": 0.0,
+        "non_degraded_availability": 0.0,
+    }
+    for values in (request_slo or {}).values():
+        requests = values.get("requests") or 0.0
+        totals["requests"] += requests
+        for metric in ("availability", "functional_availability", "non_degraded_availability"):
+            totals[metric] += (values.get(metric) or 0.0) * requests
+    requests = totals.pop("requests")
+    if not requests:
+        return {}
+    return {metric: value / requests for metric, value in totals.items()}
+
+
+def _snap_avg_all(custom_stats: dict, metric: str) -> float | None:
+    """Weighted average of one exact metric across all scenarios."""
+    total = count = 0.0
+    for (_, m), se in (custom_stats or {}).items():
+        if m != metric:
+            continue
+        total += se.get("sum") or 0.0
+        count += se.get("count") or 0.0
+    return total / count if count else None
 
 
 def _enrich_quality(sc: dict, custom_stats: dict, name: str) -> None:
@@ -193,6 +245,34 @@ def _enrich_agent(sc: dict, custom_stats: dict, name: str) -> None:
     sc["agent_tool_error_rate"] = round((te.get("sum") or 0) / tc["sum"], 4) if tc and tc.get("sum") else None
 
 
+def _enrich_resilience(sc: dict, custom_stats: dict, name: str) -> None:
+    """Attach retry/breaker/fallback/fault counters to a scenario report."""
+    counters = {
+        "retry_exhausted": "retry_exhausted_total",
+        "circuit_open": "circuit_open_total",
+        "circuit_half_open": "circuit_half_open_total",
+        "circuit_closed": "circuit_closed_total",
+        "circuit_rejected": "circuit_rejections_total",
+        "fallback_invocations": "fallback_invocations_total",
+        "fault_injections": "fault_injections_total",
+        "degraded": "degraded_total",
+    }
+    has_data = False
+    for metric, dst in counters.items():
+        se = _snap(custom_stats, name, metric)
+        if not se:
+            continue
+        has_data = True
+        sc[dst] = int(se.get("sum") or 0)
+    fb = _snap(custom_stats, name, "fallback_success")
+    if fb:
+        has_data = True
+        sc["fallback_success_rate"] = round(fb.get("avg") or 0.0, 4)
+    if has_data:
+        requests = sc.get("requests") or 0
+        sc["degraded_rate"] = round((sc.get("degraded_total") or 0) / requests, 4) if requests else None
+
+
 def aggregate(
     stats,
     config: PerfConfig,
@@ -204,6 +284,9 @@ def aggregate(
     """Build the full report dict from Locust stats + exact custom samples."""
     cost_by_scenario = cost_by_scenario or {}
     custom_stats = custom_stats or {}
+    from .metrics import availability_summary
+
+    request_slo = availability_summary()
     scenarios: dict[str, dict] = {}
     # group entries by scenario name
     try:
@@ -247,8 +330,9 @@ def aggregate(
                 "cost_usd": cost_by_scenario.get(sc["scenario"]),
             }
         )
-        _enrich_scenario(sc, custom_stats)
+        _enrich_scenario(sc, custom_stats, request_slo)
 
+    availability_totals = _availability_totals(request_slo)
     verdicts = []
     if threshold_report:
         for r in threshold_report.results:
@@ -272,6 +356,25 @@ def aggregate(
             "requests": total_req,
             "failures": total_fail,
             "error_rate": (total_fail / total_req) if total_req else 0.0,
+            "availability": (
+                availability_totals.get("availability")
+                if availability_totals.get("availability") is not None
+                else (
+                    _snap_avg_all(custom_stats, "availability")
+                    if _snap_avg_all(custom_stats, "availability") is not None
+                    else ((total_req - total_fail) / total_req if total_req else None)
+                )
+            ),
+            "functional_availability": (
+                availability_totals.get("functional_availability")
+                if availability_totals.get("functional_availability") is not None
+                else _snap_avg_all(custom_stats, "functional_availability")
+            ),
+            "non_degraded_availability": (
+                availability_totals.get("non_degraded_availability")
+                if availability_totals.get("non_degraded_availability") is not None
+                else _snap_avg_all(custom_stats, "non_degraded_availability")
+            ),
         },
         "scenarios": list(scenarios.values()),
         "thresholds": {
@@ -307,6 +410,9 @@ def write_reports(
                     "requests": sc.get("requests"),
                     "failures": sc.get("failures"),
                     "error_rate": sc.get("error_rate"),
+                    "availability": sc.get("availability"),
+                    "functional_availability": sc.get("functional_availability"),
+                    "non_degraded_availability": sc.get("non_degraded_availability"),
                     "avg_ms": sc.get("avg_ms"),
                     "p50_ms": sc.get("p50_ms"),
                     "p90_ms": sc.get("p90_ms"),
@@ -333,6 +439,13 @@ def write_reports(
                     "agent_tool_calls_avg": sc.get("agent_tool_calls_avg"),
                     "agent_tool_error_rate": sc.get("agent_tool_error_rate"),
                     "agent_loops_avg": sc.get("agent_loops_avg"),
+                    "retry_exhausted_total": sc.get("retry_exhausted_total"),
+                    "circuit_open_total": sc.get("circuit_open_total"),
+                    "circuit_rejections_total": sc.get("circuit_rejections_total"),
+                    "fallback_invocations_total": sc.get("fallback_invocations_total"),
+                    "fallback_success_rate": sc.get("fallback_success_rate"),
+                    "degraded_rate": sc.get("degraded_rate"),
+                    "fault_injections_total": sc.get("fault_injections_total"),
                 }
             )
         if rows:
