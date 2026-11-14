@@ -1,0 +1,1171 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>llm-perf report — 2026-11-14T20:42:23+0530</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, monospace; margin: 2rem; color:#1c1c1e; max-width: 1400px; }
+  h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2rem; }
+  h3 { font-size: 0.95rem; margin: 1.2rem 0 0.4rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.8rem; margin-bottom: 0.5rem; }
+  th, td { border: 1px solid #ddd; padding: 5px 7px; text-align: right; white-space: nowrap; }
+  th { background: #f5f5f7; }
+  td:first-child, th:first-child { text-align: left; }
+  .pass { color: #1a7f37; font-weight: 600; } .fail { color: #cf222e; font-weight: 600; }
+  .skip { color: #57606a; font-weight: 600; }
+  .warn { color: #9a6700; font-weight: 600; }
+  .meta { color:#666; font-size:0.85rem; }
+  .verdict { padding: 0.6rem 0.9rem; border-radius: 6px; display:inline-block; margin-bottom:1rem; font-weight:600; }
+  .verdict.ok { background:#dafbe1; color:#1a7f37; }
+  .verdict.bad { background:#ffebe9; color:#cf222e; }
+  .verdict.warn { background:#fff8c5; color:#9a6700; }
+  .cards { display:flex; flex-wrap:wrap; gap:0.8rem; margin:1rem 0; }
+  .card { border:1px solid #ddd; border-radius:8px; padding:0.7rem 1rem; min-width:130px; background:#fafafa; }
+  .card .k { font-size:0.72rem; color:#666; text-transform:uppercase; letter-spacing:0.04em; }
+  .card .v { font-size:1.15rem; font-weight:600; }
+  .findings li { margin: 0.25rem 0; }
+  .sev-high { color:#cf222e; font-weight:600; } .sev-medium { color:#9a6700; }
+  .delta-up { color:#cf222e; } .delta-down { color:#1a7f37; } .delta-flat { color:#666; }
+  .bar-row { display:flex; align-items:center; gap:0.5rem; margin:2px 0; font-size:0.78rem; }
+  .bar-label { width:180px; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar-track { flex:1; background:#eee; border-radius:3px; height:14px; position:relative; display:flex; overflow:hidden; }
+  .bar-fill { height:100%; background:#0969da; }
+  .bar-val { width:70px; font-size:0.75rem; color:#555; }
+</style>
+</head>
+<body>
+<h1>llm-perf report</h1>
+
+
+<p class="meta">
+  Generated 2026-11-14T20:42:23+0530 · duration 30.2s ·
+  profile: <b>smoke</b> ·
+  totals: 583 requests, 0 failures
+  (0.00%) ·
+  peak users: 6
+</p>
+
+
+<div class="verdict ok">
+  PASS — headline scenario: object_load
+</div>
+
+
+
+
+
+<h3>Executive summary</h3>
+<ul class="findings">
+  <li>Primary scenario &#39;object_load&#39; served 121 requests at p95=8ms.</li><li>Estimated cost $0.0045.</li><li>12 SLO rule(s) passed.</li>
+</ul>
+
+
+<div class="cards">
+
+  <div class="card"><div class="k">Requests</div><div class="v">583</div></div>
+  <div class="card"><div class="k">Error rate</div><div class="v">0.00%</div></div>
+  <div class="card"><div class="k">p95 latency</div><div class="v">8ms</div></div>
+  <div class="card"><div class="k">TTFT p95</div><div class="v">—</div></div>
+  <div class="card"><div class="k">Tokens/s</div><div class="v">0.0</div></div>
+  <div class="card"><div class="k">Quality</div><div class="v">0.00</div></div>
+  <div class="card"><div class="k">Cost</div><div class="v">$0.0045</div></div>
+  <div class="card"><div class="k">SLO</div><div class="v">12/12 pass</div></div>
+</div>
+
+
+<h2>Workload profile</h2>
+<table>
+<tr><th>phase</th><th>target users</th><th>spawn/s</th><th>duration s</th></tr>
+
+<tr><td>ramp_up</td><td>6</td><td>6.0</td><td>5</td></tr>
+
+<tr><td>steady</td><td>6</td><td>6.0</td><td>20</td></tr>
+
+<tr><td>ramp_down</td><td>0</td><td>6.0</td><td>5</td></tr>
+
+</table>
+
+
+<h2>Per-scenario performance</h2>
+<table>
+<tr><th>scenario</th><th>requests</th><th>fail%</th><th>avg</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>rps</th>
+<th>TTFT p95</th><th>TPOT p95</th><th>ITL p95</th><th>gen p95</th><th>queue p95</th>
+<th>in tok/s</th><th>out tok/s</th><th>retries</th><th>timeouts</th><th>tokens</th><th>cost</th><th>$/success</th></tr>
+
+<tr>
+  <td>object_load</td><td>121</td>
+  <td>0.00</td>
+  <td>1</td>
+  <td>8</td><td>8</td>
+  <td>8</td><td>8</td>
+  <td>4.01</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0.0</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0</td><td>0</td>
+  <td>0</td>
+  <td>$0.0000</td>
+  <td>—</td>
+</tr>
+
+<tr>
+  <td>llm_unary_load</td><td>117</td>
+  <td>0.00</td>
+  <td>10</td>
+  <td>74</td><td>74</td>
+  <td>74</td><td>74</td>
+  <td>3.88</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0.0</td>
+  <td>—</td>
+  <td>0</td>
+  <td>7793.3</td>
+  <td>2597.8</td>
+  <td>0</td><td>0</td>
+  <td>117</td>
+  <td>$0.0020</td>
+  <td>$0.00002</td>
+</tr>
+
+<tr>
+  <td>endpoint_load</td><td>121</td>
+  <td>0.00</td>
+  <td>2</td>
+  <td>17</td><td>17</td>
+  <td>17</td><td>17</td>
+  <td>4.01</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0.0</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0</td><td>0</td>
+  <td>0</td>
+  <td>$0.0000</td>
+  <td>—</td>
+</tr>
+
+<tr>
+  <td>rag_load</td><td>69</td>
+  <td>0.00</td>
+  <td>11</td>
+  <td>47</td><td>47</td>
+  <td>47</td><td>47</td>
+  <td>2.29</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0.0</td>
+  <td>—</td>
+  <td>—</td>
+  <td>4263.6</td>
+  <td>1421.2</td>
+  <td>0</td><td>0</td>
+  <td>69</td>
+  <td>$0.0006</td>
+  <td>$0.00001</td>
+</tr>
+
+<tr>
+  <td>agent_load</td><td>63</td>
+  <td>0.00</td>
+  <td>55</td>
+  <td>96</td><td>96</td>
+  <td>96</td><td>96</td>
+  <td>2.09</td>
+  <td>—</td>
+  <td>—</td>
+  <td>0.0</td>
+  <td>—</td>
+  <td>—</td>
+  <td>1419.4</td>
+  <td>430.1</td>
+  <td>0</td><td>0</td>
+  <td>63</td>
+  <td>$0.0014</td>
+  <td>$0.00002</td>
+</tr>
+
+<tr>
+  <td>llm_stream_load</td><td>92</td>
+  <td>0.00</td>
+  <td>65</td>
+  <td>96</td><td>96</td>
+  <td>96</td><td>96</td>
+  <td>3.05</td>
+  <td>41</td>
+  <td>8.6</td>
+  <td>0.0</td>
+  <td>43</td>
+  <td>0</td>
+  <td>310.4</td>
+  <td>186.7</td>
+  <td>0</td><td>0</td>
+  <td>92</td>
+  <td>$0.0006</td>
+  <td>$0.00001</td>
+</tr>
+
+</table>
+<p class="meta">TTFT = time to first token · TPOT = time per output token · ITL = inter-token latency · gen = first→last token (decode phase)</p>
+
+
+
+<h2>Latency composition (per-request median share of e2e)</h2>
+
+
+
+
+
+
+<div class="bar-row">
+  <div class="bar-label" title="llm_unary_load">llm_unary_load</div>
+  <div class="bar-track">
+    
+    
+    <div class="bar-fill" style="width:8.04%;background:hsl(0,65%,45%)"
+         title="queue_wait: 8.04% median share, p95 0ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:91.96%;background:#bbb"
+         title="unattributed (queue/overhead): 91.96%, p95 43ms"></div>
+    
+  </div>
+  <div class="bar-val">e2e p95 74ms</div>
+</div>
+
+
+
+
+
+
+
+<div class="bar-row">
+  <div class="bar-label" title="rag_load">rag_load</div>
+  <div class="bar-track">
+    
+    
+    <div class="bar-fill" style="width:55.66%;background:hsl(0,65%,45%)"
+         title="generate: 55.66% median share, p95 43ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:5.06%;background:hsl(67,65%,45%)"
+         title="retrieve: 5.06% median share, p95 0ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:38.96%;background:#bbb"
+         title="unattributed (queue/overhead): 38.96%, p95 3ms"></div>
+    
+  </div>
+  <div class="bar-val">e2e p95 47ms</div>
+</div>
+
+
+
+
+<div class="bar-row">
+  <div class="bar-label" title="agent_load">agent_load</div>
+  <div class="bar-track">
+    
+    
+    <div class="bar-fill" style="width:94.63%;background:hsl(0,65%,45%)"
+         title="agent_step: 94.63% median share, p95 87ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:3.7%;background:hsl(67,65%,45%)"
+         title="agent_tool: 3.7% median share, p95 3ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:1.68%;background:#bbb"
+         title="unattributed (queue/overhead): 1.68%, p95 1ms"></div>
+    
+  </div>
+  <div class="bar-val">e2e p95 96ms</div>
+</div>
+
+
+
+
+<div class="bar-row">
+  <div class="bar-label" title="llm_stream_load">llm_stream_load</div>
+  <div class="bar-track">
+    
+    
+    <div class="bar-fill" style="width:63.86%;background:hsl(0,65%,45%)"
+         title="generation: 63.86% median share, p95 43ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:0.33%;background:hsl(67,65%,45%)"
+         title="queue_wait: 0.33% median share, p95 0ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:32.06%;background:hsl(134,65%,45%)"
+         title="ttft: 32.06% median share, p95 41ms"></div>
+    
+    
+    
+    <div class="bar-fill" style="width:3.15%;background:#bbb"
+         title="unattributed (queue/overhead): 3.15%, p95 4ms"></div>
+    
+  </div>
+  <div class="bar-val">e2e p95 96ms</div>
+</div>
+
+
+<p class="meta">Shares are computed <b>per request</b> (segment_ms / e2e_ms, median across requests) — percentiles are never subtracted. Grey = unattributed queueing/overhead. Hover segments for p95 detail.</p>
+
+
+
+<h2>Pipeline stage breakdown</h2>
+<table>
+<tr><th>scenario</th><th>stage</th><th>count</th><th>avg ms</th><th>p50</th><th>p95</th><th>max</th></tr>
+
+<tr><td>rag_load</td><td>retrieve</td><td>69</td>
+<td>0</td><td>0</td>
+<td>0</td><td>1</td></tr>
+
+<tr><td>rag_load</td><td>generate</td><td>69</td>
+<td>9</td><td>3</td>
+<td>43</td><td>44</td></tr>
+
+<tr><td>agent_load</td><td>agent_step</td><td>126</td>
+<td>26</td><td>42</td>
+<td>45</td><td>88</td></tr>
+
+<tr><td>agent_load</td><td>agent_tool</td><td>63</td>
+<td>2</td><td>2</td>
+<td>3</td><td>8</td></tr>
+
+</table>
+
+
+
+
+<h2>Bottleneck analysis</h2>
+<table>
+<tr><th>severity</th><th>type</th><th>scenario</th><th>finding</th></tr>
+
+<tr><td class="sev-high">HIGH</td><td>stage</td>
+<td>agent_load</td><td>stage &#39;agent_step&#39; median share=95% of e2e (p95=87ms, per-request basis)</td></tr>
+
+<tr><td class="sev-medium">MEDIUM</td><td>stage</td>
+<td>rag_load</td><td>stage &#39;generate&#39; median share=56% of e2e (p95=43ms, per-request basis)</td></tr>
+
+<tr><td class="sev-medium">MEDIUM</td><td>stage</td>
+<td>llm_stream_load</td><td>stage &#39;generation&#39; median share=64% of e2e (p95=43ms, per-request basis)</td></tr>
+
+</table>
+
+
+
+
+
+<h2>Cost analysis</h2>
+<table>
+<tr><th>scenario</th><th>cost USD</th><th>cost / successful req</th><th>requests</th></tr>
+
+<tr><td>object_load</td><td>$0.0000</td>
+<td>—</td>
+<td>121</td></tr>
+
+<tr><td>llm_unary_load</td><td>$0.0020</td>
+<td>$0.00002</td>
+<td>117</td></tr>
+
+<tr><td>endpoint_load</td><td>$0.0000</td>
+<td>—</td>
+<td>121</td></tr>
+
+<tr><td>rag_load</td><td>$0.0006</td>
+<td>$0.00001</td>
+<td>69</td></tr>
+
+<tr><td>agent_load</td><td>$0.0014</td>
+<td>$0.00002</td>
+<td>63</td></tr>
+
+<tr><td>llm_stream_load</td><td>$0.0006</td>
+<td>$0.00001</td>
+<td>92</td></tr>
+
+<tr><td><b>total</b></td><td><b>$0.0045</b></td><td></td><td></td></tr>
+</table>
+
+
+
+
+<h3>Cost breakdown by call site</h3>
+<table>
+<tr><th>scenario</th><th>generation</th><th>reranking</th><th>embedding</th><th>agent</th><th>judge</th><th>retry</th><th>unattributed</th></tr>
+
+
+
+
+
+
+<tr><td>llm_unary_load</td>
+
+<td>$0.0010</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>$0.0010</td>
+
+<td>—</td>
+
+<td>—</td>
+</tr>
+
+
+
+
+
+
+
+<tr><td>rag_load</td>
+
+<td>$0.0006</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+</tr>
+
+
+
+
+<tr><td>agent_load</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>$0.0014</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+</tr>
+
+
+
+
+<tr><td>llm_stream_load</td>
+
+<td>$0.0006</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+
+<td>—</td>
+</tr>
+
+
+</table>
+<p class="meta">Each LLM call is attributed to its call site (pipeline stages → generation/reranking/agent, judge → judge, direct llm_api → generation). "unattributed" = scenario total minus categorized spend. Retried successful calls are included in their call-site cost; failed attempts carry no token usage. Column sums ≈ scenario <b>cost</b> above.</p>
+
+
+
+
+<h2>Resource utilization</h2>
+
+<h3>Load generator (this host)</h3>
+<table>
+<tr><th>samples</th><th>cpu avg %</th><th>cpu max %</th><th>mem avg %</th><th>mem max %</th><th>mem used max MB</th>
+<th>loop lag avg ms</th><th>lag p95 ms</th><th>lag max ms</th></tr>
+
+<tr><td>7</td><td>26.1</td><td>43.4</td>
+<td>39.5</td><td>39.7</td><td>6534.6</td>
+<td>1.03</td><td>2.55</td><td>52.0</td></tr>
+</table>
+<p class="meta">Loop lag = event-loop scheduling overshoot; high lag means TTFT/ITL chunk timestamps are scheduling-inclusive — see docs/methodology.md</p>
+
+
+
+
+
+<h2>Baseline comparison (baseline: 2026-11-14T20:41:27+0530)</h2>
+<table>
+<tr><th>metric</th><th>baseline</th><th>current</th><th>Δ</th><th>Δ%</th><th>direction</th></tr>
+
+
+<tr>
+  <td>error_rate</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>requests/s</td>
+  <td>3.35</td>
+  <td>3.42</td>
+  <td>+0.07</td>
+  <td class="delta-down">
+    +2.1%</td>
+  <td>better</td>
+</tr>
+
+
+<tr>
+  <td>avg latency ms</td>
+  <td>18.62</td>
+  <td>20.12</td>
+  <td>+1.50</td>
+  <td class="delta-up">
+    +8.1%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>p50 ms</td>
+  <td>27.97</td>
+  <td>51.13</td>
+  <td>+23.15</td>
+  <td class="delta-up">
+    +82.8%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>p90 ms</td>
+  <td>27.97</td>
+  <td>51.13</td>
+  <td>+23.15</td>
+  <td class="delta-up">
+    +82.8%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>p95 ms</td>
+  <td>27.97</td>
+  <td>51.13</td>
+  <td>+23.15</td>
+  <td class="delta-up">
+    +82.8%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>p99 ms</td>
+  <td>27.97</td>
+  <td>51.13</td>
+  <td>+23.15</td>
+  <td class="delta-up">
+    +82.8%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>TTFT p95 ms</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>TPOT p95 ms</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>ITL p95 ms</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>gen duration p95 ms</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>queue wait p95 ms</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>tokens/s avg</td>
+  <td>400.28</td>
+  <td>1308.73</td>
+  <td>+908.44</td>
+  <td class="delta-down">
+    +226.9%</td>
+  <td>better</td>
+</tr>
+
+
+<tr>
+  <td>input tokens/s avg</td>
+  <td>1320.94</td>
+  <td>3882.65</td>
+  <td>+2561.72</td>
+  <td class="delta-down">
+    +193.9%</td>
+  <td>better</td>
+</tr>
+
+
+<tr>
+  <td>total tokens</td>
+  <td>62.00</td>
+  <td>341.00</td>
+  <td>+279.00</td>
+  <td class="delta-flat">
+    +450.0%</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>quality score</td>
+  <td>1.00</td>
+  <td>0.93</td>
+  <td>-0.07</td>
+  <td class="delta-up">
+    -7.0%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>context recall</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>retries</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>timeouts</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td class="delta-flat">
+    —</td>
+  <td>—</td>
+</tr>
+
+
+<tr>
+  <td>cost USD</td>
+  <td>0.00</td>
+  <td>0.00</td>
+  <td>+0.00</td>
+  <td class="delta-up">
+    +233.8%</td>
+  <td>worse</td>
+</tr>
+
+
+<tr>
+  <td>cost/success USD</td>
+  <td>0.00</td>
+  <td>0.00</td>
+  <td>-0.00</td>
+  <td class="delta-down">
+    -39.3%</td>
+  <td>better</td>
+</tr>
+
+</table>
+
+
+<h3>agent_load</h3>
+<table>
+<tr><th>metric</th><th>baseline</th><th>current</th><th>Δ%</th><th>direction</th></tr>
+
+<tr><td>requests/s</td><td>2.06</td>
+<td>2.09</td>
+<td class="delta-down">+1.5%</td>
+<td>better</td></tr>
+
+<tr><td>avg latency ms</td><td>50.17</td>
+<td>54.81</td>
+<td class="delta-up">+9.2%</td>
+<td>worse</td></tr>
+
+<tr><td>p50 ms</td><td>65.00</td>
+<td>96.00</td>
+<td class="delta-up">+47.7%</td>
+<td>worse</td></tr>
+
+<tr><td>p90 ms</td><td>65.00</td>
+<td>96.00</td>
+<td class="delta-up">+47.7%</td>
+<td>worse</td></tr>
+
+<tr><td>p95 ms</td><td>65.00</td>
+<td>96.00</td>
+<td class="delta-up">+47.7%</td>
+<td>worse</td></tr>
+
+<tr><td>p99 ms</td><td>65.00</td>
+<td>96.00</td>
+<td class="delta-up">+47.7%</td>
+<td>worse</td></tr>
+
+<tr><td>tokens/s avg</td><td>400.28</td>
+<td>430.11</td>
+<td class="delta-down">+7.5%</td>
+<td>better</td></tr>
+
+<tr><td>input tokens/s avg</td><td>1320.94</td>
+<td>1419.36</td>
+<td class="delta-down">+7.5%</td>
+<td>better</td></tr>
+
+<tr><td>total tokens</td><td>62.00</td>
+<td>63.00</td>
+<td class="delta-flat">+1.6%</td>
+<td>None</td></tr>
+
+<tr><td>quality score</td><td>1.00</td>
+<td>1.00</td>
+<td class="delta-flat">+0.0%</td>
+<td>same</td></tr>
+
+<tr><td>cost USD</td><td>0.00</td>
+<td>0.00</td>
+<td class="delta-up">+1.6%</td>
+<td>worse</td></tr>
+
+<tr><td>cost/success USD</td><td>0.00</td>
+<td>0.00</td>
+<td class="delta-down">+0.0%</td>
+<td>better</td></tr>
+
+</table>
+
+
+<h3>endpoint_load</h3>
+<table>
+<tr><th>metric</th><th>baseline</th><th>current</th><th>Δ%</th><th>direction</th></tr>
+
+<tr><td>requests/s</td><td>4.02</td>
+<td>4.01</td>
+<td class="delta-up">-0.1%</td>
+<td>worse</td></tr>
+
+<tr><td>avg latency ms</td><td>2.46</td>
+<td>2.41</td>
+<td class="delta-down">-2.1%</td>
+<td>better</td></tr>
+
+<tr><td>p50 ms</td><td>9.00</td>
+<td>17.00</td>
+<td class="delta-up">+88.9%</td>
+<td>worse</td></tr>
+
+<tr><td>p90 ms</td><td>9.00</td>
+<td>17.00</td>
+<td class="delta-up">+88.9%</td>
+<td>worse</td></tr>
+
+<tr><td>p95 ms</td><td>9.00</td>
+<td>17.00</td>
+<td class="delta-up">+88.9%</td>
+<td>worse</td></tr>
+
+<tr><td>p99 ms</td><td>9.00</td>
+<td>17.00</td>
+<td class="delta-up">+88.9%</td>
+<td>worse</td></tr>
+
+</table>
+
+
+
+
+
+
+
+
+
+<h2>Regression detection — <span class="fail">8 regression(s)</span></h2>
+
+<table>
+<tr><th>metric</th><th>scenario</th><th>baseline</th><th>current</th><th>Δ%</th><th>allowed</th></tr>
+
+<tr><td>p95 ms</td><td>(all)</td>
+<td>27.97</td>
+<td>51.13</td>
+<td class="fail">+82.8%</td><td>+10%</td></tr>
+
+<tr><td>p99 ms</td><td>(all)</td>
+<td>27.97</td>
+<td>51.13</td>
+<td class="fail">+82.8%</td><td>+10%</td></tr>
+
+<tr><td>quality score</td><td>(all)</td>
+<td>1.00</td>
+<td>0.93</td>
+<td class="fail">-7.0%</td><td>-5%</td></tr>
+
+<tr><td>cost USD</td><td>(all)</td>
+<td>0.00</td>
+<td>0.00</td>
+<td class="fail">+233.8%</td><td>+15%</td></tr>
+
+<tr><td>p95 ms</td><td>agent_load</td>
+<td>65.00</td>
+<td>96.00</td>
+<td class="fail">+47.7%</td><td>+10%</td></tr>
+
+<tr><td>p99 ms</td><td>agent_load</td>
+<td>65.00</td>
+<td>96.00</td>
+<td class="fail">+47.7%</td><td>+10%</td></tr>
+
+<tr><td>p95 ms</td><td>endpoint_load</td>
+<td>9.00</td>
+<td>17.00</td>
+<td class="fail">+88.9%</td><td>+10%</td></tr>
+
+<tr><td>p99 ms</td><td>endpoint_load</td>
+<td>9.00</td>
+<td>17.00</td>
+<td class="fail">+88.9%</td><td>+10%</td></tr>
+
+</table>
+
+
+
+
+
+
+<h2>Agent evaluation</h2>
+<table>
+<tr><th>scenario</th><th>agent runs</th><th>task success %</th><th>steps avg</th><th>tool calls avg</th><th>tool error %</th><th>loops avg</th></tr>
+
+
+
+
+
+
+
+
+
+
+<tr><td>agent_load</td><td>63</td>
+<td class="pass">100.0%</td>
+<td>2.0</td>
+<td>1.0</td>
+<td>0.0%</td>
+<td>0.00</td></tr>
+
+
+
+
+</table>
+
+
+<h2>Quality</h2>
+<table>
+<tr><th>scenario</th><th>quality score</th><th>evaluated</th><th>eval rate</th><th>judge rate</th><th>95% CI</th><th>context recall</th><th>recall@k</th><th>prec@k</th><th>MRR</th><th>NDCG</th></tr>
+
+<tr><td>object_load</td>
+  <td>—</td>
+  <td>0<span class="meta">/?</span></td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  </tr>
+
+<tr><td>llm_unary_load</td>
+  <td>0.850</td>
+  <td>117<span class="meta">/117</span></td>
+  <td>100%</td>
+  <td>100%</td>
+  <td>0.85–0.85</td>
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  </tr>
+
+<tr><td>endpoint_load</td>
+  <td>—</td>
+  <td>0<span class="meta">/?</span></td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  </tr>
+
+<tr><td>rag_load</td>
+  <td>1.000</td>
+  <td>69<span class="meta">/69</span></td>
+  <td>100%</td>
+  <td>0%</td>
+  <td>1.00–1.00</td>
+  <td>0.615</td>
+  
+  <td>0.615</td>
+  
+  <td>0.308</td>
+  
+  <td>0.615</td>
+  
+  <td>0.615</td>
+  </tr>
+
+<tr><td>agent_load</td>
+  <td>1.000</td>
+  <td>63<span class="meta">/63</span></td>
+  <td>100%</td>
+  <td>0%</td>
+  <td>1.00–1.00</td>
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  </tr>
+
+<tr><td>llm_stream_load</td>
+  <td>—</td>
+  <td>0<span class="meta">/?</span></td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  
+  <td>—</td>
+  </tr>
+
+</table>
+
+
+
+<p class="meta">IR metrics (recall@k/precision@k/MRR/NDCG) require relevance judgments on dataset rows: <code>relevant_ids</code> (doc ids in retrieved order) or <code>relevant_texts</code>/<code>expected_context</code> (overlap-matched). Absent judgments → "—" (not evaluated), never a misleading 0.</p>
+
+
+
+<h2>Threshold verdicts</h2>
+
+<div class="verdict ok">
+  All thresholds passed
+</div>
+<table>
+<tr><th>rule</th><th>metric</th><th>comparator</th><th>threshold</th><th>actual</th><th>result</th></tr>
+
+
+<tr>
+  <td>scenario:llm_unary_load.p95_ms</td><td>p95_latency_ms</td><td>&lt;=</td>
+  <td>30000.0</td><td>32.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:llm_unary_load.max_error_rate</td><td>error_rate</td><td>&lt;=</td>
+  <td>0.5</td><td>0.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:llm_unary_load.min_quality_score</td><td>quality_score</td><td>&gt;=</td>
+  <td>0.5</td><td>0.85</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:llm_stream_load.p95_ms</td><td>p95_latency_ms</td><td>&lt;=</td>
+  <td>30000.0</td><td>26.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:llm_stream_load.ttft_p95_ms</td><td>ttft_p95_ms</td><td>&lt;=</td>
+  <td>5000.0</td><td>40.72</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:rag_load.p95_ms</td><td>p95_latency_ms</td><td>&lt;=</td>
+  <td>60000.0</td><td>32.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:rag_load.stage.retrieve.p95_ms</td><td>stage.retrieve.p95_ms</td><td>&lt;=</td>
+  <td>5000.0</td><td>0.32</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:rag_load.stage.generate.p95_ms</td><td>stage.generate.p95_ms</td><td>&lt;=</td>
+  <td>30000.0</td><td>42.85</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:agent_load.p95_ms</td><td>p95_latency_ms</td><td>&lt;=</td>
+  <td>60000.0</td><td>2.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:agent_load.min_agent_success_rate</td><td>agent_success_rate</td><td>&gt;=</td>
+  <td>0.5</td><td>1.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:endpoint_load.p95_ms</td><td>p95_latency_ms</td><td>&lt;=</td>
+  <td>30000.0</td><td>17.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+
+<tr>
+  <td>scenario:object_load.p95_ms</td><td>p95_latency_ms</td><td>&lt;=</td>
+  <td>30000.0</td><td>8.00</td>
+  <td class="pass">
+    PASS</td>
+</tr>
+
+</table>
+
+</body>
+</html>

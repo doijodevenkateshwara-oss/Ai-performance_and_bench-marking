@@ -330,8 +330,10 @@ def _retrieve_chroma(cfg: dict, query: str, top_k: int, embedding: list[float] |
     """Query a local Chroma collection for top-k docs."""
     try:
         import chromadb
-    except ImportError:
-        raise RuntimeError("chroma vector store requires `pip install chromadb` " "(or use type: json/http)")
+    except ImportError as e:
+        raise RuntimeError(
+            "chroma vector store requires `pip install chromadb` " "(or use type: json/http)"
+        ) from e
     client = chromadb.PersistentClient(path=cfg.get("path", "./chroma_db"))
     col = client.get_collection(cfg.get("collection", "llm_perf"))
     # real vector search when an embed stage produced a query embedding

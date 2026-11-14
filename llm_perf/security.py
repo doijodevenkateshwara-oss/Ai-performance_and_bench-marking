@@ -17,6 +17,7 @@ Author: Venkateshwara Doijode
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 import socket
 import urllib.request
@@ -24,6 +25,8 @@ from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
+
+logger = logging.getLogger("llm_perf.security")
 
 
 class UrlNotAllowed(PermissionError, requests.RequestException):
@@ -273,11 +276,11 @@ def python_execution_allowed(kind: str) -> bool:
 
 
 def _warn_once(key: str, msg: str) -> None:
-    """Print a warning only the first time a key is seen."""
+    """Emit a warning only the first time a key is seen."""
     if key in _warned_once:
         return
     _warned_once.add(key)
-    print(msg)
+    logger.warning("%s", msg)
 
 
 # ---------------------------------------------------------------------------

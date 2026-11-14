@@ -9,6 +9,7 @@ Author: Venkateshwara Doijode
 
 from __future__ import annotations
 
+import logging
 import os
 
 from locust import events
@@ -18,6 +19,8 @@ from .otel.setup import setup_otel
 from .otel.setup import shutdown as otel_shutdown
 from .scenarios import build_users
 from .security import set_policy, warn_untrusted
+
+logger = logging.getLogger("llm_perf")
 
 _config_path = os.environ.get("LLM_PERF_CONFIG")
 if not _config_path:
@@ -62,9 +65,12 @@ if _config.load.uses_shape:
                 if now < self._phase_start + p.duration_s:
                     if p.label != self._last_label:
                         self._last_label = p.label
-                        print(
-                            f"[llm-perf] phase {p.label}: users={p.target_users} "
-                            f"spawn={p.spawn_rate}/s dur={p.duration_s:.0f}s"
+                        logger.info(
+                            "[llm-perf] phase %s: users=%s spawn=%s/s dur=%.0fs",
+                            p.label,
+                            p.target_users,
+                            p.spawn_rate,
+                            p.duration_s,
                         )
                     return p
                 self._phase_start += p.duration_s
@@ -87,7 +93,7 @@ if _config.load.uses_shape:
         def tick(self):
             """LoadTestShape.tick: current (users, spawn_rate) or None to stop."""
             if self._capacity_breached():
-                print("[llm-perf] capacity profile: error-rate breach, stopping early")
+                logger.warning("[llm-perf] capacity profile: error-rate breach, stopping early")
                 return None
             if self._run_time_cap and self.get_run_time() >= self._run_time_cap:
                 return None
@@ -201,7 +207,7 @@ def _run_reports_and_thresholds(environment) -> None:
 
     history.record_run(report, _config)
     for p in paths:
-        print(f"[llm-perf] report written: {p}")
+        logger.info("[llm-perf] report written: %s", p)
 
     # alerts
     if _config.thresholds and _config.thresholds.alerts:
@@ -215,7 +221,7 @@ def _run_reports_and_thresholds(environment) -> None:
             _config.thresholds.alerts, trep or th.ThresholdReport(), "test_complete", summary
         )
         if notified:
-            print(f"[llm-perf] alerts sent via: {', '.join(set(notified))}")
+            logger.info("[llm-perf] alerts sent via: %s", ", ".join(set(notified)))
 
     # exit code for CI — three-state rules: FAIL breaches + NOT_EVALUATED policy
     if trep:
@@ -227,19 +233,20 @@ def _run_reports_and_thresholds(environment) -> None:
                 reasons.append(
                     f"{len(trep.not_evaluated)} rule(s) not evaluated " "(thresholds.on_not_evaluated=fail)"
                 )
-            print(f"[llm-perf] THRESHOLD FAILURES ({'; '.join(reasons)}) — exiting nonzero")
+            logger.error("[llm-perf] THRESHOLD FAILURES (%s) — exiting nonzero", "; ".join(reasons))
             os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
         if trep.should_warn:
             names = ", ".join(r.name for r in trep.not_evaluated[:10])
-            print(
-                f"[llm-perf] WARNING: {len(trep.not_evaluated)} threshold rule(s) "
-                f"not evaluated (no data): {names}"
+            logger.warning(
+                "[llm-perf] WARNING: %s threshold rule(s) not evaluated (no data): %s",
+                len(trep.not_evaluated),
+                names,
             )
 
     # regression gate
     reg = report.get("regression") or {}
     if reg.get("regressions") and _config.report.regression.on_fail == "fail":
-        print(f"[llm-perf] {len(reg['regressions'])} REGRESSION(S) — exiting nonzero")
+        logger.error("[llm-perf] %s REGRESSION(S) — exiting nonzero", len(reg["regressions"]))
         os.environ["LLM_PERF_THRESHOLDS_FAILED"] = "1"
 
 
@@ -295,9 +302,12 @@ def _enrich_report(report: dict, stage_stats: dict, cost_by_scenario: dict | Non
     if warnings:
         report["warnings"] = warnings
         for w in warnings:
-            print(
-                f"[llm-perf] WARNING [{w['metric']}] {w['message']} "
-                f"(value={w['value']}, threshold={w['threshold']})"
+            logger.warning(
+                "[llm-perf] WARNING [%s] %s (value=%s, threshold=%s)",
+                w["metric"],
+                w["message"],
+                w["value"],
+                w["threshold"],
             )
 
     report["analysis"] = {

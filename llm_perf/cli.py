@@ -25,7 +25,7 @@ def _load_or_exit(path: str, skip_connectivity: bool = False) -> PerfConfig:
         cfg = PerfConfig.from_yaml(path)
     except Exception as e:
         console.print(f"[red]Config error:[/red] {e}")
-        raise typer.Exit(2)
+        raise typer.Exit(2) from e
     from .security import set_policy, warn_untrusted
 
     set_policy(cfg.security)
@@ -51,24 +51,42 @@ def _filter_config(cfg: PerfConfig, layers: str | None, scenarios: str | None) -
 
 
 def _check_env_vars(cfg: PerfConfig) -> None:
-    """Warn about missing API-key env vars, dataset sources, and alert webhooks."""
-    missing = []
+    """Validate env vars at startup: missing API keys fail loud; dataset
+    sources and alert webhooks warn (they degrade gracefully or are optional)."""
+    missing_keys = []
+    missing_optional = []
     for t in cfg.targets:
         env = getattr(t, "api_key_env", None)
         if env and not os.environ.get(env):
-            missing.append(f"target {t.name}: ${env}")
+            missing_keys.append(f"target {t.name}: ${env}")
+        # nested credentials: pipeline stage llm: blocks and agent http tools
+        for st in getattr(t, "pipeline", None) or []:
+            stage_llm = getattr(st, "llm", None) or {}
+            env = stage_llm.get("api_key_env") if isinstance(stage_llm, dict) else None
+            if env and not os.environ.get(env):
+                missing_keys.append(f"target {t.name} stage llm: ${env}")
+            for tool in getattr(st, "tools", None) or []:
+                env = tool.get("api_key_env") if isinstance(tool, dict) else None
+                if env and not os.environ.get(env):
+                    missing_keys.append(f"target {t.name} agent tool: ${env}")
     for name, ds in cfg.datasets.items():
         src = ds.source
         if not (src.startswith(("http", "s3://", "gs://")) or Path(src).exists()):
-            missing.append(f"dataset {name}: source not found: {src}")
+            missing_optional.append(f"dataset {name}: source not found: {src}")
     if cfg.thresholds:
         for a in cfg.thresholds.alerts:
             env = a.get("url_env")
             if env and not os.environ.get(env):
-                missing.append(f"alert: ${env}")
-    if missing:
+                missing_optional.append(f"alert: ${env}")
+    if missing_keys:
+        console.print("[red]Missing required environment variables:[/red]")
+        for m in missing_keys:
+            console.print(f"  - {m}")
+        console.print("[red]Set them before running, or use --skip-connectivity to bypass.[/red]")
+        raise typer.Exit(2)
+    if missing_optional:
         console.print("[yellow]Warnings:[/yellow]")
-        for m in missing:
+        for m in missing_optional:
             console.print(f"  - {m}")
 
 
@@ -173,8 +191,8 @@ def run(
         code = e.code if isinstance(e.code, int) else 0
         # check threshold failure flag via env set in locustfile
         if os.environ.get("LLM_PERF_THRESHOLDS_FAILED") == "1":
-            raise typer.Exit(1)
-        raise typer.Exit(code or 0)
+            raise typer.Exit(1) from e
+        raise typer.Exit(code or 0) from e
 
 
 @app.command("proto-gen")
@@ -187,7 +205,7 @@ def proto_gen_cmd(proto: str = typer.Option(..., "-p", "--proto")):
         console.print(f"[green]Generated stubs in[/green] {out}")
     except Exception as e:
         console.print(f"[red]proto-gen failed:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command("quality-check")
@@ -364,7 +382,7 @@ def ds_validate(path: str):
             console.print("columns:", list(rows[0].keys()))
     except Exception as e:
         console.print(f"[red]Invalid dataset:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 def main():

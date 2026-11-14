@@ -134,20 +134,23 @@ def test_redact_disabled_by_policy():
 # ---------------------------------------------------------------------------
 
 
-def test_python_execution_modes(capsys):
+def test_python_execution_modes(caplog):
     """python_execution off blocks, warn allows once."""
+    security._warned_once.clear()
     security.set_policy(_policy(python_execution="off"))
     assert python_execution_allowed("test") is False
 
     security.set_policy(_policy(python_execution="warn"))
     assert python_execution_allowed("test") is True
     assert python_execution_allowed("test") is True  # warns once
-    assert capsys.readouterr().out.count("SECURITY WARNING") == 1
+    warnings = [r for r in caplog.records if "SECURITY WARNING" in r.getMessage()]
+    assert len(warnings) == 1
 
     security.reset_policy()
     security.set_policy(_policy(python_execution="allow"))
+    caplog.clear()
     assert python_execution_allowed("test") is True
-    assert "SECURITY WARNING" not in capsys.readouterr().out
+    assert not [r for r in caplog.records if "SECURITY WARNING" in r.getMessage()]
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +248,7 @@ def test_agent_function_tool_blocked_when_off():
 # ---------------------------------------------------------------------------
 
 
-def test_audit_config_detects_powerful_features(capsys):
+def test_audit_config_detects_powerful_features(caplog):
     """audit_config lists http tools and python imports."""
     from types import SimpleNamespace
 
@@ -283,10 +286,11 @@ def test_audit_config_detects_powerful_features(capsys):
     assert any("remote URL" in n for n in notes)
 
     security.set_policy(_policy())
+    security._warned_once.clear()
     warn_untrusted(cfg)
-    assert "SECURITY WARNING" in capsys.readouterr().out
+    assert any("SECURITY WARNING" in r.getMessage() for r in caplog.records)
 
-    capsys.readouterr()
+    caplog.clear()
     security.set_policy(_policy(trusted=True))
     warn_untrusted(cfg)
-    assert capsys.readouterr().out == ""
+    assert not [r for r in caplog.records if "SECURITY WARNING" in r.getMessage()]
